@@ -9,21 +9,22 @@ const cals = [
   { id: 'me', name: 'אישי', color: '#039be5', primary: true, accessRole: 'owner', defaultReminders: [{ method: 'popup', minutes: 30 }] },
   { id: 'work', name: 'עבודה', color: '#0b8043', primary: false, accessRole: 'owner', defaultReminders: [{ method: 'popup', minutes: 10 }] },
   { id: 'teach', name: 'הוראה', color: '#8e24aa', primary: false, accessRole: 'owner', defaultReminders: [] },
-  { id: 'family', name: 'משפחה', color: '#f4511e', primary: false, accessRole: 'writer', defaultReminders: [] },
   { id: 'hol', name: 'חגים בישראל', color: '#616161', primary: false, accessRole: 'reader', defaultReminders: [] },
 ];
 
 let events = [
   { calId: 'me', title: 'ריצה בפארק', start: rel(-150), end: rel(-105), location: 'פארק הירקון, תל אביב' },
-  { calId: 'work', title: 'סקירת סטוריבורד — קליפ פתיחה ומעברים לסצנה 3', start: rel(55), end: rel(115), location: 'סטודיו, הרא״ה 12 גבעתיים', meet: 'https://meet.google.com/abc-defg-hij', description: 'לעבור על 12 הפריימים ולסגור צבעוניות לסצנה 3.' },
+  { calId: 'work', title: 'סקירת סטוריבורד — קליפ פתיחה ומעברים לסצנה 3', start: rel(55), end: rel(115), location: 'סטודיו, הרא״ה 12 גבעתיים',
+    attachments: [{ title: 'סטוריבורד v3.pdf', url: 'https://drive.google.com/', icon: '' }],
+    guests: [{ name: 'רוני לוי', email: 'roni@example.com' }, { name: 'דנה', email: 'dana@example.com' }, { name: 'אני', email: 'me@example.com', self: true }], meet: 'https://meet.google.com/abc-defg-hij', description: 'לעבור על 12 הפריימים ולסגור צבעוניות לסצנה 3.' },
   { calId: 'teach', title: 'שיעור מושן — כיתה ב׳', start: rel(240), end: rel(390), location: 'שנקר, אנה פרנק 12 רמת גן', description: 'נושא: easing ו־anticipation. להביא את הדוגמאות מ־After Effects.' },
-  { calId: 'family', title: 'ארוחת ערב אצל ההורים', start: rel(480), end: rel(600), location: 'הרצל 40, ראשון לציון' },
+  { calId: 'me', title: 'ארוחת ערב אצל ההורים', start: rel(480), end: rel(600), location: 'הרצל 40, ראשון לציון' },
   { calId: 'hol', title: 'ערב חג', start: at(1, 0), end: at(2, 0), allDay: true },
-  { calId: 'family', title: 'יום הולדת לנועה', start: at(0, 0), end: at(1, 0), allDay: true, birthday: true },
+  { calId: 'me', title: 'יום הולדת לנועה', start: at(0, 0), end: at(1, 0), allDay: true, birthday: true },
   { calId: 'work', title: 'מסירת אנימטיק ללקוח', start: at(1, 10), end: at(1, 11) },
   { calId: 'me', title: 'מספרה', start: at(1, 17, 30), end: at(1, 18, 15), location: 'דיזנגוף 150, תל אביב' },
 ].map(e => ({
-  id: uid(), allDay: false, birthday: false, location: '', description: '', meet: '', snoozeFor: null,
+  id: uid(), allDay: false, birthday: false, location: '', description: '', meet: '', snoozeFor: null, taskRef: null, attachments: [], guests: [],
   reminders: cals.find(c => c.id === e.calId).defaultReminders.map(r => r.minutes), reminder: cals.find(c => c.id === e.calId).defaultReminders[0]?.minutes ?? null,
   reminderIsDefault: true, canEdit: e.calId !== 'hol', htmlLink: 'https://calendar.google.com/', ...e,
 }));
@@ -46,6 +47,10 @@ tasks.push(
   t({ title: 'דחיסה ל־webp', parent: parentId, listId: 'studio' }),
   t({ title: 'להעלות ל־Sticker.ly', parent: parentId, listId: 'studio' }),
 );
+
+// a task with a reminder time (helper event, hidden in lists)
+events.push({ id: uid(), calId: 'me', title: '⏰ ' + tasks[1].title, start: rel(150), end: rel(155), allDay: false, taskRef: tasks[1].id, snoozeFor: null,
+  reminders: [0], reminder: 0, reminderIsDefault: false, attachments: [], guests: [], location: '', description: '', meet: '', canEdit: true, htmlLink: '' });
 
 let emails = [
   { from: 'רוני לוי', subject: 'עדכון לגבי הקליפ — אפשר לדבר היום?', snippet: 'היי! ראיתי את הגרסה האחרונה, יש לי שתי הערות קטנות על המעבר בסצנה 4…', mins: 35 },
@@ -75,7 +80,7 @@ export const demo = {
   async createEvent(o) {
     const cal = cals.find(c => c.id === o.calId);
     const list = o.reminder === 'default' ? cal.defaultReminders.map(r => r.minutes) : o.reminder == null ? [] : [].concat(o.reminder);
-    const ev = { id: uid(), meet: '', canEdit: true, htmlLink: 'https://calendar.google.com/', reminderIsDefault: o.reminder === 'default',
+    const ev = { id: uid(), meet: '', canEdit: true, attachments: [], guests: [], taskRef: null, htmlLink: 'https://calendar.google.com/', reminderIsDefault: o.reminder === 'default',
       birthday: false, ...o, snoozeFor: o.snoozeFor || null, reminders: list, reminder: list.length ? Math.min(...list) : null };
     events.push(ev);
     return ev;
@@ -89,6 +94,8 @@ export const demo = {
     if (f.status === 'completed') x.completed = new Date().toISOString();
     if (f.status === 'needsAction') x.completed = null;
   },
+  async moveTask(task, listId) { const x = tasks.find(y => y.id === task.id); if (x) { x.listId = listId; x.listTitle = lists.find(l => l.id === listId)?.title; } tasks.filter(y => y.parent === task.id).forEach(y => { y.listId = listId; }); return task.id; },
+  async moveEvent(ev, { start, end, title }) { const e = events.find(x => x.id === ev.id); if (!e) return; if (start) { e.start = start; e.end = end; } if (title) e.title = title; },
   async deleteTask(task) { tasks = tasks.filter(x => x.id !== task.id && x.parent !== task.id); },
   async emails() { await wait(); return emails.map(e => ({ ...e })); },
   async labels() { return [{ id: 'Label_1', name: 'לקוחות', color: '#16a765' }, { id: 'Label_2', name: 'שנקר', color: '#a479e2' }, { id: 'Label_3', name: 'חשבוניות', color: '#ffad47' }]; },

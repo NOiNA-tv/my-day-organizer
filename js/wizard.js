@@ -5,11 +5,11 @@
 import { icon } from './icons.js';
 import {
   state, eventsOn, taskGroups, calById, calColor, toggleTask, deferTask, updateTask, archiveEmail, unarchiveEmail,
-  emailToTask, dropTask, allTaskRoots, setReminder, deleteEvent, trashEmail, userLabels, snoozedUntil,
+  emailToTask, dropTask, allTaskRoots, reminderOf, deleteEvent, trashEmail, userLabels, snoozedUntil,
 } from './data.js';
 import { esc, hm, countdown, greeting, dayName, longDate, addDays, ymd, fromYmd, daysBetween, daysLeftLabel, startOfDay, haptic, reducedMotion, relDayLabel } from './util.js';
 import { wmo } from './extras.js';
-import { openDeferSheet, openTask, navLinks, linkify, reminderChips, parseRem, deferOptions, applyDefer } from './sheets.js';
+import { openDeferSheet, openTask, navLinks, linkify, reminderText, guestsText, deferOptions, applyDefer } from './sheets.js';
 import { openSheet, closeSheet, paintSheet } from './overlay.js';
 
 let W = null; // live wizard instance
@@ -225,7 +225,9 @@ function cardBody(item) {
           <a href="${nav.car}" target="_blank" rel="noopener">${icon('car', 'rtl-flip')}Waze</a>
         </div>` : ''}
       ${ev.meet ? `<div class="c-links"><a href="${esc(ev.meet)}" target="_blank" rel="noopener">${icon('video')}הצטרפות לשיחת וידאו</a></div>` : ''}
-      ${ev.canEdit ? `<div class="c-sec"><div class="c-label">${icon('bell')}תזכורת</div>${reminderChips(ev)}</div>` : ''}
+      ${guestsText(ev) ? `<a class="c-line c-link" href="${esc(ev.htmlLink)}" target="_blank" rel="noopener">${icon('users')}<span>${esc(guestsText(ev))}</span></a>` : ''}
+      ${ev.attachments?.length ? ev.attachments.map(a => `<a class="c-line c-link" href="${esc(a.url)}" target="_blank" rel="noopener">${icon('paperclip')}<span>${esc(a.title)}</span></a>`).join('') : ''}
+      <div class="c-line">${icon('bell')}<span>${esc(reminderText(ev))}</span></div>
       ${ev.description ? `<div class="c-sec"><div class="c-label">תיאור</div><div class="c-desc">${linkify(ev.description)}</div></div>` : ''}
       <div class="c-foot">
         <a class="c-btn" href="${esc(ev.htmlLink)}" target="_blank" rel="noopener">${icon('pencil')}עריכה ביומן גוגל</a>
@@ -242,7 +244,8 @@ function cardBody(item) {
       <div class="c-kind"><i style="background:var(--brand)"></i>משימה · ${esc(t.listTitle || '')}</div>
       <h3 class="c-title big">${esc(t.title)}</h3>
       <div class="c-facts">
-        <span class="${n != null && n < 0 ? 'hot' : ''}">${icon('calendar')}${due ? `יום ${dayName(due)}, ${longDate(due)} · ${daysLeftLabel(n)}` : 'בלי תאריך יעד'}</span>
+        ${n != null && n < 0 ? `<span class="hot">${icon('calendar')}${daysLeftLabel(n)}</span>` : ''}
+        ${reminderOf(t.id) ? `<span>${icon('bell')}תזכורת ב־${hm(reminderOf(t.id).time)}</span>` : ''}
         ${t.subtasks.length ? `<span>${icon('list')}${t.subtasks.filter(s => s.status === 'completed').length}/${t.subtasks.length} תתי־משימות</span>` : ''}
       </div>
       ${t.subtasks.length ? `<div class="c-subs">${t.subtasks.map(s => `
@@ -313,7 +316,6 @@ function onClick(e) {
   if (b.dataset.w === 'undo') return undo();
   if (b.dataset.jump != null) { jump(Number(b.dataset.jump)); return; }
   if (b.dataset.sub) { toggleTask(b.dataset.sub, { silent: true }); b.classList.toggle('on'); haptic(); return; }
-  if (b.dataset.rem) { setReminder(W.deck[W.i].id, parseRem(b.dataset.rem)); repaintTop(); haptic(); return; }
   if (b.dataset.editTask) { openTask(b.dataset.editTask); watchSheetThenRepaint(); return; }
   if ('cdel' in b.dataset) return removeCurrent();
   if (b.dataset.dir) fling(b.dataset.dir);
@@ -444,11 +446,6 @@ function emailTaskDrawer(item) {
     <p class="sub">${icon('mail')} ${esc(e.from)}</p>
     <div class="field-label">שם המשימה</div>
     <input class="inp" data-key="title" value="${esc(f.title)}" enterkeyhint="done">
-    <div class="field-label">${icon('calendar')}תאריך יעד</div>
-    <div class="seg">
-      ${[[ymd(t0), 'היום'], [ymd(addDays(t0, 1)), 'מחר'], [ymd(addDays(t0, 7)), 'בעוד שבוע'], ['', 'ללא']].map(([v, l]) => `<button type="button" data-due="${v}" aria-pressed="${(f.due || '') === v}">${l}</button>`).join('')}
-      <input class="inp" type="date" data-key="due" value="${f.due || ''}" style="width:auto;height:38px;padding:0 10px;border-radius:12px" aria-label="תאריך">
-    </div>
     ${state.lists.length > 1 ? `<div class="field-label">${icon('list')}רשימה</div>
       <select class="inp" data-key="list">${state.lists.map(l => `<option value="${l.id}" ${l.id === f.list ? 'selected' : ''}>${esc(l.title)}</option>`).join('')}</select>` : ''}
     <div class="field-label">פרטים</div>

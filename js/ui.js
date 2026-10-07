@@ -2,6 +2,7 @@
 import { icon } from './icons.js';
 import {
   state, eventsOn, taskGroups, progress, nextUp, isToday, calById, calColor, setDay, refresh, toggleTask, APP_PALETTE, snoozedUntil,
+  reminderOf, setTaskReminder, saveOrder, saveSettings,
 } from './data.js';
 import { esc, hm, dayName, longDate, shortDate, addDays, ymd, fromYmd, daysBetween, daysLeftLabel, countdown, sameDay, startOfDay, relDayLabel } from './util.js';
 import { openEvent, openTask, openAdd, openSettings, openDeferMenu, eventTimeText } from './sheets.js';
@@ -62,10 +63,9 @@ function hero() {
         <button class="icon-btn" data-act="settings" aria-label="הגדרות">${icon('settings')}</button>
       </div>
       <div class="day-row ${view.slide || ''}">
-        <span class="app-name">מה איתי היום?</span>
         <h1 class="day-name">${dayName(d)}</h1>
         <div class="date-text">${longDate(d)}${today ? '' : ` · <span class="rel">${relLabel(d)}</span>`}</div>
-        <div class="day-side">${today ? ring(progress()) : `<button class="back-today" data-act="today">${icon(d < new Date() ? 'arrowL' : 'arrowR')}<span>חזרה<br>להיום</span></button>`}</div>
+        <div class="day-side">${today ? ring(progress()) : `<button class="back-today" data-act="today"><svg viewBox="0 0 92 92" aria-hidden="true"><circle cx="46" cy="46" r="40" fill="none" stroke-width="8" stroke-dasharray="10.5 6.255"/></svg><span class="bt-in">${icon(d < new Date() ? 'arrowL' : 'arrowR')}<span>חזרה<br>להיום</span></span></button>`}</div>
       </div>
       ${today ? nextWidget() : ''}
     </header>`;
@@ -84,7 +84,7 @@ function eventRow(ev, now) {
   const soon = !ev.allDay && ms > 0 && ms <= 2 * 3600e3;
   const startsToday = sameDay(ev.start, state.day);
   return `
-    <button class="ev ${past ? 'past' : ''} ${live ? 'live' : ''}" style="--c:${c}" data-act="event" data-id="${ev.id}">
+    <button class="ev ${past ? 'past' : ''} ${live ? 'live' : ''}" style="--c:${c}" data-act="event" data-id="${ev.id}" data-slot="event" data-start="${ev.start.toISOString()}" data-end="${ev.end.toISOString()}">
       <div class="ev-time">${startsToday ? hm(ev.start) : '00:00'}<small>${hm(ev.end)}</small></div>
       <div class="ev-main"><i class="ev-bar" style="background:${c}"></i>
         <div class="ev-text">
@@ -97,10 +97,12 @@ function eventRow(ev, now) {
       </div>
       <div class="ev-side">
         ${live ? `<span class="soon-pill later">עכשיו</span>` : soon ? `<span class="soon-pill">${countdown(ms)}</span>` : ''}
-        <span class="mini-icons">${ev.reminder != null && !past ? icon('bell') : ''}${ev.meet ? icon('video') : ''}</span>
+        <span class="mini-icons">${ev.reminder != null && !past ? icon('bell') : ''}${ev.meet ? icon('video') : ''}${ev.attachments?.length ? icon('paperclip') : ''}${guestCount(ev) ? `<span class="guests">${icon('users')}${guestCount(ev)}</span>` : ''}</span>
       </div>
     </button>`;
 }
+
+const guestCount = ev => (ev.guests || []).length > 1 ? ev.guests.length : 0;
 
 const nowLine = now => `<div class="now" role="separator" aria-label="השעה עכשיו ${hm(now)}"><b>${hm(now)}</b><i></i></div>`;
 
@@ -123,6 +125,147 @@ function eventsSection() {
         ${rows || (allDay.length ? '' : `<div class="empty"><b>אין אירועים ${isToday() ? 'היום' : 'ביום הזה'}</b>מקום פנוי ביומן.</div>`)}
       </div>
     </section>`;
+}
+
+// ---------- combined day list: events fixed by time, tasks placed around them ----------
+const viewToggle = () => `<button class="icon-btn view-toggle" data-act="view-mode" aria-label="${state.settings.viewMode === 'split' ? 'רשימה אחת' : 'יומן ומשימות בנפרד'}" title="החלפת תצוגה">${icon(state.settings.viewMode === 'split' ? 'list' : 'calendar')}</button>`;
+
+function daySection() {
+  const day = state.day, now = new Date(), today = isToday();
+  const evs = eventsOn(day);
+  const allDay = evs.filter(e => e.allDay), timedEv = evs.filter(e => !e.allDay);
+  const { dueNow, doneToday } = taskGroups(day);
+  const timedTasks = [], anyTasks = [];
+  for (const t of dueNow) {
+    const r = reminderOf(t.id);
+    if (r && sameDay(r.time, day)) timedTasks.push({ t, time: r.time }); else anyTasks.push(t);
+  }
+  const ord = id => { const i = state.anyOrder.indexOf(id); return i < 0 ? 1e6 : i; };
+  anyTasks.sort((a, b) => ord(a.id) - ord(b.id));
+  const line = [...timedEv.map(e => ({ kind: 'ev', e, at: e.start })), ...timedTasks.map(x => ({ kind: 'task', t: x.t, at: x.time }))]
+    .sort((a, b) => (a.at - b.at) || (a.kind === b.kind ? (state.tieOrder[a.t?.id] || 0) - (state.tieOrder[b.t?.id] || 0) : a.kind === 'task' ? -1 : 1));
+  let rows = '', nowDrawn = !today;
+  for (const it of line) {
+    if (!nowDrawn && it.at > now) { rows += nowLine(now); nowDrawn = true; }
+    rows += it.kind === 'ev' ? eventRow(it.e, now) : comboTaskRow(it.t, it.at);
+  }
+  if (!nowDrawn && line.length) rows += nowLine(now);
+  const total = evs.length + dueNow.length;
+  return `
+    <section class="sec" aria-labelledby="h-day">
+      <div class="sec-h"><h2 id="h-day">${today ? 'היום שלי' : `יום ${dayName(day)}`}</h2>${total ? `<span class="count">${total}</span>` : ''}
+        ${viewToggle()}
+        <button class="icon-btn" data-act="add-menu" aria-label="הוספה">${icon('plus')}</button></div>
+      <div class="group combo mk-${state.settings.marker}">
+        ${allDay.length ? `<div class="allday">${allDay.map(e => `<button class="ad-chip" data-act="event" data-id="${e.id}">${e.birthday ? '<span class="cake">🎂</span>' : `<i style="background:${calColor(calById(e.calId))}"></i>`}${esc(e.title)}</button>`).join('')}</div>` : ''}
+        <div class="zone-h ${anyTasks.length ? '' : 'empty'}" data-slot="anyhead">${icon('check')}משימות בלי שעה</div>
+        ${anyTasks.map(t => comboTaskRow(t, null)).join('')}
+        <div class="zone-h ${line.length ? '' : 'empty'}" data-slot="tlhead">${icon('calendar')}לפי שעה</div>
+        ${rows}
+        ${!total ? `<div class="empty"><b>${today ? 'היום פנוי' : 'היום הזה פנוי'}</b>אפשר להוסיף משימה או אירוע עם ה־+.</div>` : ''}
+        ${doneToday.length ? `
+          <button class="disclosure" data-act="toggle-done" aria-expanded="${view.openDone}">${icon('check')} בוצעו היום (${doneToday.length})${icon('chevD')}</button>
+          ${view.openDone ? doneToday.map(t => taskRow(t)).join('') : ''}` : ''}
+      </div>
+      ${dueNow.length ? '<p class="dnd-tip">גוררים משימה בעזרת ⠿ כדי למקם אותה בין האירועים. המיקום קובע את שעת התזכורת.</p>' : ''}
+    </section>`;
+}
+
+function comboTaskRow(t, time) {
+  const n = t.due ? daysBetween(new Date(), fromYmd(t.due)) : null;
+  const subsDone = t.subtasks.filter(x => x.status === 'completed').length;
+  const meta = [];
+  if (time) meta.push(`<span class="rem">${icon('bell')}${hm(time)}</span>`);
+  if (n != null && n < 0) meta.push(`<span class="late">${daysLeftLabel(n)}</span>`);
+  if (t.subtasks.length) meta.push(`<span>${icon('list')} ${subsDone}/${t.subtasks.length}</span>`);
+  if (t.notes) meta.push(`<span>${icon('pencil')} פרטים</span>`);
+  if (state.lists.length > 1) meta.push(`<span>${esc(t.listTitle || '')}</span>`);
+  const past = time && time < new Date();
+  return `
+    <div class="task combo ${past ? 'past' : ''}" data-task="${t.id}" data-slot="task" ${time ? `data-time="${time.toISOString()}"` : ''}>
+      <div class="ev-time">${time ? hm(time) : ''}</div>
+      <button class="check" data-act="toggle" data-id="${t.id}" aria-label="סימון כבוצע: ${esc(t.title)}"><span>${icon('check')}</span></button>
+      <button class="task-main" data-act="task" data-id="${t.id}">
+        <div class="task-title">${esc(t.title)}</div>
+        ${meta.length ? `<div class="task-meta">${meta.join('')}</div>` : ''}
+      </button>
+      <button class="icon-btn grip" data-grip="${t.id}" aria-label="גרירה לשינוי מיקום ושעה">${icon('grip')}</button>
+    </div>`;
+}
+
+// ---------- drag a task within the combined list → its reminder time follows the spot ----------
+function startDrag(e, handle) {
+  const row = handle.closest('.task.combo');
+  const group = row.closest('.group.combo');
+  if (!row || !group) return;
+  e.preventDefault();
+  handle.setPointerCapture(e.pointerId);
+  const id = handle.dataset.grip;
+  const y0 = e.clientY, rect = row.getBoundingClientRect();
+  group.classList.add('dnd');
+  row.classList.add('lifting');
+  const ind = document.createElement('div');
+  ind.className = 'drop-ind';
+  group.append(ind);
+  let target = null, raf = 0, lastY = y0;
+  const slots = () => [...group.querySelectorAll('[data-slot]')].filter(el => el !== row && !el.classList.contains('hidden-slot'));
+  const compute = y => {
+    const list = slots();
+    let i = list.findIndex(el => { const r = el.getBoundingClientRect(); return y < r.top + r.height / 2; });
+    if (i < 0) i = list.length;
+    if (i === 0 && list[0]?.dataset.slot === 'anyhead') i = 1; // can't drop above the first header
+    target = { list, i };
+    const gr = group.getBoundingClientRect();
+    const ref = list[i] ? list[i].getBoundingClientRect().top : list[i - 1].getBoundingClientRect().bottom;
+    ind.style.top = (ref - gr.top - 1) + 'px';
+  };
+  const scroller = () => {
+    if (lastY < 90) scrollBy(0, -10); else if (lastY > innerHeight - 90) scrollBy(0, 10);
+    raf = requestAnimationFrame(scroller);
+  };
+  raf = requestAnimationFrame(scroller);
+  const move = ev => {
+    lastY = ev.clientY;
+    row.style.transform = `translateY(${ev.clientY - y0}px)`;
+    compute(ev.clientY);
+  };
+  const up = () => {
+    cancelAnimationFrame(raf);
+    handle.removeEventListener('pointermove', move);
+    handle.removeEventListener('pointerup', up);
+    handle.removeEventListener('pointercancel', up);
+    group.classList.remove('dnd'); row.classList.remove('lifting'); row.style.transform = ''; ind.remove();
+    if (target) placeTask(id, target.list, target.i);
+  };
+  compute(rect.top + rect.height / 2);
+  handle.addEventListener('pointermove', move);
+  handle.addEventListener('pointerup', up);
+  handle.addEventListener('pointercancel', up);
+}
+
+function placeTask(id, list, i) {
+  const before = list.slice(0, i), after = list.slice(i);
+  const zone = before.some(el => el.dataset.slot === 'tlhead') ? 'time' : 'any';
+  if (zone === 'any') {
+    const ids = [...before, { dataset: { slot: 'task', me: 1 } }, ...after]
+      .filter(el => el.dataset.slot === 'task' && (el.dataset.me || !el.dataset.time))
+      .map(el => el.dataset.me ? id : el.closest('[data-task]').dataset.task);
+    state.anyOrder = ids; saveOrder();
+    setTaskReminder(id, null);
+    render();
+    return;
+  }
+  const timeOf = el => el.dataset.slot === 'event' ? null : el.dataset.time ? new Date(el.dataset.time) : null;
+  const prev = [...before].reverse().find(el => el.dataset.slot === 'event' || el.dataset.time);
+  const next = after.find(el => el.dataset.slot === 'event' || el.dataset.time);
+  let at;
+  if (prev) at = prev.dataset.slot === 'event' ? new Date(prev.dataset.end) : timeOf(prev);
+  else if (next) at = new Date((next.dataset.slot === 'event' ? new Date(next.dataset.start) : timeOf(next)).getTime() - 15 * 60000);
+  else { at = isToday() ? new Date() : new Date(state.day); if (!isToday()) at.setHours(9, 0, 0, 0); else at.setMinutes(Math.ceil(at.getMinutes() / 15) * 15, 0, 0); }
+  // keep it on the selected day
+  if (!sameDay(at, state.day)) { at = new Date(state.day); at.setHours(prev ? 23 : 0, prev ? 45 : 0, 0, 0); }
+  state.tieOrder[id] = Date.now(); state.anyOrder = state.anyOrder.filter(x => x !== id); saveOrder();
+  setTaskReminder(id, at, { quiet: false });
 }
 
 // ---------- tasks ----------
@@ -149,13 +292,13 @@ function taskRow(t, { showDue = false } = {}) {
     </div>`;
 }
 
-function tasksSection() {
+function tasksSection({ withToday = true } = {}) {
   const g = taskGroups();
   const { doneToday, upcoming, noDate } = g;
   const dueNow = [...g.dueNow].sort((a, b) => !!snoozedUntil(a.id) - !!snoozedUntil(b.id)); // snoozed ones sink to the bottom
   const today = isToday();
   return `
-    <section class="sec" aria-labelledby="h-t">
+    ${withToday ? `<section class="sec" aria-labelledby="h-t">
       <div class="sec-h"><h2 id="h-t">משימות ${today ? 'להיום' : `ליום ${dayName(state.day)}`}</h2>${dueNow.length ? `<span class="count">${dueNow.length}</span>` : ''}
         <button class="icon-btn" data-act="add-task" aria-label="משימה חדשה">${icon('plus')}</button></div>
       <div class="group">
@@ -164,7 +307,7 @@ function tasksSection() {
           <button class="disclosure" data-act="toggle-done" aria-expanded="${view.openDone}">${icon('check')} בוצעו היום (${doneToday.length})${icon('chevD')}</button>
           ${view.openDone ? doneToday.map(t => taskRow(t)).join('') : ''}` : ''}
       </div>
-    </section>
+    </section>` : ''}
     ${aheadSection(upcoming, noDate)}`;
 }
 
@@ -265,8 +408,7 @@ export function render() {
     ${hero()}
     <main class="body ${view.slide || ''}">
       ${banners()}
-      ${eventsSection()}
-      ${tasksSection()}
+      ${state.settings.viewMode === 'split' ? eventsSection() + tasksSection() : daySection() + tasksSection({ withToday: false })}
       ${tiles()}
     </main>
     <div class="minibar ${minibarShown ? 'show' : ''}" aria-hidden="true">
@@ -298,6 +440,10 @@ export function mountFabs() {
 }
 
 export function bindMain() {
+  document.addEventListener('pointerdown', e => {
+    const h = e.target.closest('[data-grip]');
+    if (h && !h.closest('.sheet, .wizard')) startDrag(e, h);
+  });
   document.addEventListener('click', e => {
     const b = e.target.closest('[data-act]');
     if (!b || b.closest('.sheet, .wizard, .menu')) return;
@@ -320,6 +466,8 @@ export function bindMain() {
       case 'today': view.slide = state.day < new Date() ? 'in-left' : 'in-right'; setDay(new Date()); setTimeout(() => { view.slide = ''; }, 400); break;
       case 'toggle-done': view.openDone = !view.openDone; render(); break;
       case 'ahead': view.aheadTab = id; render(); break;
+      case 'view-mode': saveSettings({ viewMode: state.settings.viewMode === 'split' ? 'combined' : 'split' }); break;
+      case 'add-menu': openAdd({ kind: 'task' }); break;
       case 'toggle-nodate': view.openNoDate = !view.openNoDate; render(); break;
       case 'login': handlers.login?.(); break;
       case 'wizard': handlers.wizard?.('morning', b); break;
@@ -330,13 +478,13 @@ export function bindMain() {
   });
   // swipe anywhere on the main screen to change day (RTL: the future is to the left, so swipe right → next day)
   let x0 = null, y0 = null, t0 = 0, horiz = null;
-  const blocked = el => el.closest('.sheet, .wizard, .menu, .scrim, input, textarea, select, .fabs, .tabs');
+  const blocked = el => el.closest('.sheet, .wizard, .menu, .scrim, input, textarea, select, .fabs, .tabs, .grip, .dnd');
   const hintEl = document.createElement('div');
   hintEl.className = 'swipe-hint';
   hintEl.setAttribute('aria-hidden', 'true');
   document.body.append(hintEl);
   const TH = 70;
-  const hideHint = () => { hintEl.className = 'swipe-hint'; document.querySelector('.body')?.style.removeProperty('transform'); document.querySelector('.day-row')?.style.removeProperty('transform'); };
+  const hideHint = () => { hintEl.className = 'swipe-hint'; document.querySelectorAll('.body, .day-name, .date-text').forEach(el => el.style.removeProperty('transform')); };
   document.addEventListener('touchstart', e => {
     if (e.touches.length !== 1 || blocked(e.target)) { x0 = null; return; }
     x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; t0 = Date.now(); horiz = null;
@@ -353,8 +501,7 @@ export function bindMain() {
     hintEl.style.setProperty('--p', p);
     hintEl.innerHTML = `${icon(next ? 'arrowL' : 'arrowR')}<span>${sameDay(d, new Date()) ? 'היום' : relLabelShort(d)}</span>`;
     const shift = `translateX(${Math.sign(dx) * Math.min(40, Math.abs(dx) * .35)}px)`;
-    document.querySelector('.body')?.style.setProperty('transform', shift);
-    document.querySelector('.day-row')?.style.setProperty('transform', shift);
+    document.querySelectorAll('.body, .day-name, .date-text').forEach(el => el.style.setProperty('transform', shift));
   }, { passive: true });
   document.addEventListener('touchend', e => {
     if (x0 == null) return;

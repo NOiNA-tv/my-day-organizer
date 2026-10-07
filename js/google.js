@@ -37,7 +37,11 @@ function normEvent(e, cal) {
   return {
     id: e.id, calId: cal.id, title: e.summary || '(ללא כותרת)', start, end, allDay,
     location: e.location || '', description: e.description || '', htmlLink: e.htmlLink,
-    reminder, reminders, reminderIsDefault, snoozeFor: e.extendedProperties?.private?.mdSnooze || null, canEdit: ['owner', 'writer'].includes(cal.accessRole),
+    reminder, reminders, reminderIsDefault, snoozeFor: e.extendedProperties?.private?.mdSnooze || null,
+    taskRef: e.extendedProperties?.private?.mdTask || null,
+    attachments: (e.attachments || []).map(a => ({ title: a.title || 'קובץ', url: a.fileUrl, icon: a.iconLink || '' })),
+    guests: (e.attendees || []).filter(a => !a.resource).map(a => ({ name: a.displayName || a.email, email: a.email, self: !!a.self, status: a.responseStatus })),
+    canEdit: ['owner', 'writer'].includes(cal.accessRole),
     birthday: e.eventType === 'birthday' || /#contacts@|#birthdays/.test(cal.id) || /יום הולדת|יום־הולדת|birthday|🎂/i.test(e.summary || ''),
     meet: e.hangoutLink || e.conferenceData?.entryPoints?.find(p => p.entryPointType === 'video')?.uri || '',
   };
@@ -53,6 +57,9 @@ function normTask(t, list) {
   };
 }
 
+// The shared Google "Family" calendar is never shown
+const isFamily = c => /^family\d*@group\.calendar\.google\.com$/i.test(c.id) || /^(משפחה|family)$/i.test((c.summaryOverride || c.summary || '').trim());
+
 export const google = {
   live: true,
 
@@ -63,7 +70,7 @@ export const google = {
 
   async calendars() {
     const r = await g(`${CAL}/users/me/calendarList?${qs({ minAccessRole: 'reader', maxResults: 250 })}`);
-    return (r.items || []).filter(c => !c.deleted).map(c => ({
+    return (r.items || []).filter(c => !c.deleted && !isFamily(c)).map(c => ({
       id: c.id, name: c.summaryOverride || c.summary, color: c.backgroundColor, primary: !!c.primary,
       accessRole: c.accessRole, defaultReminders: c.defaultReminders || [], hidden: !!c.hidden,
     }));
@@ -91,7 +98,15 @@ export const google = {
     await g(`${CAL}/calendars/${encodeURIComponent(ev.calId)}/events/${ev.id}`, { method: 'DELETE' });
   },
 
-  async createEvent({ calId, title, start, end, allDay, location, description, reminder, snoozeFor }) {
+  async moveEvent(ev, { start, end, title }) {
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const body = {};
+    if (start) { body.start = { dateTime: start.toISOString(), timeZone: tz }; body.end = { dateTime: end.toISOString(), timeZone: tz }; }
+    if (title) body.summary = title;
+    await g(`${CAL}/calendars/${encodeURIComponent(ev.calId)}/events/${ev.id}`, { method: 'PATCH', body: JSON.stringify(body) });
+  },
+
+  async createEvent({ calId, title, start, end, allDay, location, description, reminder, snoozeFor, taskRef }) {
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
     const body = {
       summary: title, location, description,
@@ -103,6 +118,7 @@ export const google = {
       body.reminders = { useDefault: false, overrides: list.map(minutes => ({ method: 'popup', minutes })) };
     }
     if (snoozeFor) { body.extendedProperties = { private: { mdSnooze: snoozeFor } }; body.transparency = 'transparent'; }
+    if (taskRef) { body.extendedProperties = { private: { mdTask: taskRef } }; body.transparency = 'transparent'; }
     return g(`${CAL}/calendars/${encodeURIComponent(calId)}/events`, { method: 'POST', body: JSON.stringify(body) });
   },
 
@@ -141,6 +157,12 @@ export const google = {
     if ('due' in fields) body.due = fields.due ? `${fields.due}T00:00:00.000Z` : null;
     if ('status' in fields) { body.status = fields.status; if (fields.status === 'needsAction') body.completed = null; }
     await g(`${TASKS}/lists/${task.listId}/tasks/${task.id}`, { method: 'PATCH', body: JSON.stringify(body) });
+  },
+
+  // move to another list (subtasks travel with it)
+  async moveTask(task, listId) {
+    const r = await g(`${TASKS}/lists/${task.listId}/tasks/${task.id}/move?${qs({ destinationTasklist: listId })}`, { method: 'POST' });
+    return r?.id || task.id;
   },
 
   async deleteTask(task) {

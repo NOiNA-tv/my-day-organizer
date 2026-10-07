@@ -21,7 +21,7 @@ export const state = {
   settings: migrate({ ...DEFAULT_SETTINGS, ...store.get('settings', {}) }),
   day: startOfDay(new Date()),
   cals: [], lists: [], events: [], tasks: [], emails: [], labels: [],
-  snoozes: store.get('snoozes', {}), profile: null, loading: true, error: null, mode: 'demo', lastSync: null,
+  snoozes: store.get('snoozes', {}), anyOrder: store.get('anyOrder', []), tieOrder: store.get('tieOrder', {}), profile: null, loading: true, error: null, mode: 'demo', lastSync: null,
 };
 
 const subs = new Set();
@@ -141,7 +141,7 @@ export function eventsOn(day) {
   const s = startOfDay(day), e = addDays(s, 1);
   const hidden = new Set(state.settings.hiddenCals);
   return state.events
-    .filter(ev => !hidden.has(ev.calId) && !ev.snoozeFor && ev.start < e && ev.end > s)
+    .filter(ev => !hidden.has(ev.calId) && !ev.snoozeFor && !ev.taskRef && ev.start < e && ev.end > s)
     .sort((a, b) => (b.allDay - a.allDay) || (a.start - b.start));
 }
 
@@ -182,7 +182,7 @@ export function progress() {
 
 export function nextUp() {
   const now = new Date();
-  const ev = state.events.filter(e => !e.allDay && !e.snoozeFor && e.end > now && !state.settings.hiddenCals.includes(e.calId))
+  const ev = state.events.filter(e => !e.allDay && !e.snoozeFor && !e.taskRef && e.end > now && !state.settings.hiddenCals.includes(e.calId))
     .sort((a, b) => a.start - b.start)[0];
   return ev || null;
 }
@@ -195,6 +195,7 @@ export function toggleTask(id, { silent = false } = {}) {
   const to = t.status === 'completed' ? 'needsAction' : 'completed';
   const prev = { status: t.status, completed: t.completed };
   t.status = to; t.completed = to === 'completed' ? new Date().toISOString() : null;
+  if (to === 'completed' && reminderOf(id)) setTaskReminder(id, null);
   emit();
   api().patchTask(t, { status: to }).catch(fail);
   if (!silent && to === 'completed' && !t.parent) {
@@ -246,11 +247,59 @@ export function updateTask(id, fields) {
   const t = findTask(id); if (!t) return;
   Object.assign(t, fields); emit();
   api().patchTask(t, fields).catch(fail);
+  const r = reminderOf(id);
+  if (r && fields.title) { r.ev.title = `⏰ ${fields.title}`; api().moveEvent(r.ev, { title: r.ev.title }).catch(() => {}); }
+}
+
+// ---------- task reminders (a time of day for a task) ----------
+// Google Tasks keeps dates only, so the time lives on a tiny helper event in the main calendar,
+// tagged with the task's id. The event rings on the phone; the app hides it and shows the time on the task.
+export function reminderOf(taskId) {
+  const ev = state.events.find(e => e.taskRef === taskId);
+  return ev ? { ev, time: ev.start } : null;
+}
+
+export async function setTaskReminder(taskId, date, { quiet = true } = {}) {
+  const t = findTask(taskId);
+  const cur = state.events.find(e => e.taskRef === taskId);
+  if (!date) {
+    if (!cur) return;
+    state.events = state.events.filter(e => e !== cur); emit();
+    if (!String(cur.id).startsWith('tmp-')) api().deleteEvent(cur).catch(fail);
+    return;
+  }
+  const end = new Date(date.getTime() + 5 * 60000);
+  if (cur) {
+    cur.start = date; cur.end = end; emit();
+    if (!String(cur.id).startsWith('tmp-')) api().moveEvent(cur, { start: date, end }).catch(fail);
+    return;
+  }
+  const calId = state.cals.find(c => c.primary)?.id;
+  const tmp = { id: 'tmp-' + uid(), calId, taskRef: taskId, title: `⏰ ${t?.title || ''}`, start: date, end, allDay: false, reminders: [0], reminder: 0, attachments: [], guests: [] };
+  state.events.push(tmp); emit();
+  try {
+    const created = await api().createEvent({ calId, title: tmp.title, start: date, end, allDay: false, location: '', description: 'תזכורת למשימה מ״מה איתי היום?״. השעה נקבעת באפליקציה.', reminder: [0], taskRef: taskId });
+    if (created?.id) tmp.id = created.id;
+  } catch (e) { fail(e); }
+  if (!quiet) toast(`תזכורת ב־${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`);
+}
+
+export function saveOrder() { store.set('anyOrder', state.anyOrder); store.set('tieOrder', state.tieOrder); }
+
+export async function moveTaskToList(id, listId) {
+  const t = findTask(id); if (!t || t.listId === listId) return;
+  const prev = t.listId;
+  const title = state.lists.find(l => l.id === listId)?.title;
+  t.listId = listId; t.listTitle = title;
+  state.tasks.filter(x => x.parent === id).forEach(x => { x.listId = listId; x.listTitle = title; });
+  emit();
+  try { await api().moveTask({ ...t, listId: prev }, listId); toast(`הועבר לרשימה ${title}`); }
+  catch (e) { fail(e); }
 }
 
 export async function addTask({ title, notes = '', due = null, listId, parent = null }) {
   listId = listId || state.settings.defaultList || state.lists[0]?.id;
-  const tmp = { id: 'tmp-' + uid(), listId, listTitle: state.lists.find(l => l.id === listId)?.title, title, notes, due, status: 'needsAction', completed: null, parent, position: 'zzz' + Date.now(), webLink: 'https://tasks.google.com/', subtasks: [] };
+  const tmp = { id: 'tmp-' + uid(), listId, listTitle: state.lists.find(l => l.id === listId)?.title, title, notes, due, status: 'needsAction', completed: null, parent, position: 'zzz' + Date.now(), webLink: 'https://tasks.google.com/', subtasks: [], links: [] };
   state.tasks.push(tmp); emit();
   try {
     const realId = await api().createTask({ listId, title, notes, due, parent });
@@ -266,7 +315,7 @@ export function deleteTask(id) {
   emit();
   toast(t.parent ? 'תת־המשימה נמחקה' : `נמחק: ${t.title}`, {
     undo: () => { state.tasks.push(...removed); emit(); },
-    commit: () => api().deleteTask(t).catch(fail),
+    commit: () => { api().deleteTask(t).catch(fail); setTaskReminder(t.id, null); },
   });
 }
 
