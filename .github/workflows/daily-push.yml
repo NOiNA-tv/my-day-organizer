@@ -1,0 +1,28 @@
+name: Daily push (morning & evening)
+
+on:
+  schedule:
+    # Jerusalem 07:30 and 20:30 — two UTC slots each so it works in both summer (UTC+3) and winter (UTC+2) time.
+    - cron: '30 4 * * *'
+    - cron: '30 5 * * *'
+    - cron: '30 17 * * *'
+    - cron: '30 18 * * *'
+  workflow_dispatch:
+    inputs:
+      kind:
+        description: 'morning / evening'
+        default: morning
+
+jobs:
+  push:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - run: npm install --no-save web-push@3
+      - run: node push/send.mjs
+        env:
+          VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
+          SCHEDULE: ${{ github.event.schedule }}
+          KIND: ${{ github.event.inputs.kind }}

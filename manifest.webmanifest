@@ -1,0 +1,23 @@
+{
+  "name": "מה איתי היום?",
+  "short_name": "מה איתי היום",
+  "description": "היום שלך במבט אחד: יומן, משימות ומיילים מגוגל",
+  "lang": "he",
+  "dir": "rtl",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#3cc4dc",
+  "theme_color": "#3cc4dc",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "אשף הבוקר", "url": "./?wizard=morning", "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }] },
+    { "name": "סיכום ערב", "url": "./?wizard=evening", "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }] },
+    { "name": "מיילים לטיפול", "url": "./?wizard=mail", "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }] }
+  ]
+}
