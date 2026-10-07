@@ -367,6 +367,8 @@ function throwCard(card, dir, act) {
   const dy = dir === 'up' ? -innerHeight : dir === 'down' ? innerHeight * .6 : 40;
   card.style.transform = `translate(${dx}px, ${dy}px) rotate(${dir === 'right' ? 18 : dir === 'left' ? -18 : 0}deg)`;
   card.style.opacity = '0';
+  const bh = card.parentElement?.querySelector('.card.behind');
+  if (bh && W) { bh.classList.add('rising'); W.risen = true; }
 }
 
 function snapBack(card) { card.style.transform = ''; tint(card, null, 0); }
@@ -498,7 +500,8 @@ function record(item, undoFn, stat) {
 function advance() {
   W.i++;
   if (W.i >= W.deck.length) { W.phase = 'finish'; paint(); return; }
-  paintDeck();
+  paintDeck({ animate: !W.risen });
+  W.risen = false;
 }
 
 function undo() {
@@ -521,34 +524,60 @@ function tint(card, act, strength) {
 // ---------- drag physics ----------
 function attachDrag(card, item) {
   const acts = ACTIONS[item.type];
-  let sx = 0, sy = 0, dx = 0, dy = 0, t0 = 0, dragging = false, pid = null;
+  let sx = 0, sy = 0, dx = 0, dy = 0, dragging = false, pid = null, axis = null, trail = [];
+  const behind = () => card.parentElement?.querySelector('.card.behind');
   card.addEventListener('pointerdown', e => {
-    if (e.target.closest('a, button, input, .c-defer')) return;
-    pid = e.pointerId; sx = e.clientX; sy = e.clientY; dx = dy = 0; t0 = performance.now(); dragging = true;
+    if (e.target.closest('a, button, input, .c-defer') || card.classList.contains('gone') || card.classList.contains('panel-open')) return;
+    // a card still easing in follows the finger right away instead of fighting its entrance animation
+    card.getAnimations().forEach(a => a.cancel());
+    card.classList.remove('enter', 'from-back');
+    pid = e.pointerId; sx = e.clientX; sy = e.clientY; dx = dy = 0; axis = null; dragging = true;
+    trail = [{ x: e.clientX, y: e.clientY, t: e.timeStamp }];
     card.setPointerCapture(pid);
     card.classList.add('dragging');
   });
   card.addEventListener('pointermove', e => {
     if (!dragging || e.pointerId !== pid) return;
     dx = e.clientX - sx; dy = e.clientY - sy;
-    const up = dy < 0 && Math.abs(dy) > Math.abs(dx) && acts.up && !card.classList.contains('scrolls');
-    const ty = up ? dy : dy * .25;
-    card.style.transform = `translate(${dx}px, ${ty}px) rotate(${dx / 18}deg)`;
-    const dir = up ? 'up' : dx > 0 ? 'right' : 'left';
-    const act = acts[dir];
-    const strength = up ? -dy / 120 : Math.abs(dx) / 120;
+    trail.push({ x: e.clientX, y: e.clientY, t: e.timeStamp });
+    if (trail.length > 6) trail.shift();
+    // lock to one axis once the finger has clearly picked a direction (no diagonal wobble)
+    if (!axis && Math.hypot(dx, dy) > 10) {
+      axis = Math.abs(dx) >= Math.abs(dy) ? 'x' : (dy < 0 && acts.up && !card.classList.contains('scrolls') ? 'up' : 'y');
+      if (axis === 'y' && card.classList.contains('scrolls')) { release(); return; } // let the card scroll
+    }
+    if (!axis) return;
+    const tx = axis === 'x' ? dx : axis === 'y' ? dx * .3 : dx * .3;
+    const ty = axis === 'up' ? Math.min(0, dy) : dy * .2;
+    card.style.transform = `translate(${tx}px, ${ty}px) rotate(${tx / 18}deg)`;
+    const dir = axis === 'up' ? 'up' : axis === 'x' ? (dx > 0 ? 'right' : 'left') : null;
+    const act = dir && acts[dir];
+    const strength = axis === 'up' ? -dy / 120 : Math.abs(dx) / 120;
     tint(card, act && strength > .08 ? act[0] : null, strength);
+    // the next card rises a little as this one leaves
+    const p = Math.min(1, Math.max(Math.abs(tx), -ty) / 160), bh = behind();
+    if (bh) { bh.style.transition = 'none'; bh.style.transform = `translateY(${18 * (1 - p)}px) scale(${.94 + .06 * p})`; }
   });
+  function release() {
+    dragging = false;
+    try { card.releasePointerCapture(pid); } catch {}
+    card.classList.remove('dragging');
+    snapBack(card);
+    const bh = behind(); if (bh) { bh.style.transition = ''; bh.style.transform = ''; }
+  }
   const end = e => {
     if (!dragging || e.pointerId !== pid) return;
+    if (e.type === 'pointercancel') return release(); // the browser took over (e.g. scrolling): never act on it
     dragging = false;
     card.classList.remove('dragging');
-    const dt = performance.now() - t0;
-    const vx = dx / dt, vy = dy / dt;
-    const up = dy < 0 && Math.abs(dy) > Math.abs(dx) && !card.classList.contains('scrolls');
+    // release speed over the last few moves, not the whole gesture, so a quick tap never counts as a fling
+    const f = trail[0], l = trail[trail.length - 1], dt = Math.max(16, l.t - f.t);
+    const vx = (l.x - f.x) / dt, vy = (l.y - f.y) / dt;
     let dir = null;
-    if (up && (dy < -110 || vy < -.6)) dir = 'up';
-    else if (!up && (Math.abs(dx) > 110 || Math.abs(vx) > .6)) dir = dx > 0 ? 'right' : 'left';
+    if (axis === 'up' && (dy < -110 || (vy < -.5 && dy < -40))) dir = 'up';
+    else if (axis === 'x' && (Math.abs(dx) > 110 || (Math.abs(vx) > .5 && Math.abs(dx) > 40 && Math.sign(vx) === Math.sign(dx)))) dir = dx > 0 ? 'right' : 'left';
+    const bh = behind();
+    if (bh) { bh.style.transition = ''; bh.style.transform = ''; }
     if (dir && acts[dir]) fling(dir); else snapBack(card);
   };
   card.addEventListener('pointerup', end);
