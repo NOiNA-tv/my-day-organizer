@@ -124,8 +124,10 @@ function openDigest(card) {
 function hero() {
   const d = state.day, today = isToday(), w = view.weather;
   const wx = w ? wmo(w.code, w.isDay) : null;
+  const dg = digestForDay();
+  const widgets = (dg ? digestCard(dg) : '') + (today ? nextWidget() : '');
   return `
-    <header class="hero" id="hero">
+    <header class="hero ${widgets ? '' : 'bare'}" id="hero">
       <div class="topbar">
         ${w ? `<a class="chip-btn wx" href="${weatherLink()}" target="_blank" rel="noopener" aria-label="${wx.label}, ${w.now} מעלות${w.city ? ' ב' + esc(w.city) : ''}">
           <span class="wx-emoji">${wx.icon}</span><span>${w.now}°${w.city ? ` <span class="wx-city">${esc(w.city)}</span>` : ''}</span><span class="wx-range ltr">${w.min}°–${w.max}°</span></a>` : '<span class="chip-btn wx" aria-hidden="true" style="opacity:.4">…</span>'}
@@ -138,8 +140,7 @@ function hero() {
         <div class="date-text">${longDate(d)}${today ? '' : ` · <span class="rel">${relLabel(d)}</span>`}</div>
         <div class="day-side">${today ? ring(progress()) : `<button class="back-today" data-act="today"><svg viewBox="0 0 92 92" aria-hidden="true"><circle cx="46" cy="46" r="40" fill="none" stroke-width="8" stroke-dasharray="3 13.755" stroke-linecap="round"/></svg><span class="bt-in">${icon(d < new Date() ? 'arrowL' : 'arrowR')}<span>חזרה<br>להיום</span></span></button>`}</div>
       </div>
-      ${(dg => dg ? digestCard(dg) : '')(digestForDay())}
-      ${today ? nextWidget() : ''}
+      ${widgets}
     </header>`;
 }
 
