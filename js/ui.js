@@ -144,7 +144,7 @@ function hero() {
   const dg = digestForDay();
   const widgets = (dg ? digestCard(dg) : '') + (today ? nextWidget() : '');
   return `
-    <header class="hero ${widgets ? '' : 'bare'}" id="hero">
+    <header class="hero ${widgets ? '' : 'bare'} ${view.slide ? 'sliding' : ''}" id="hero">
       <div class="topbar">
         ${w ? `<a class="chip-btn wx" href="${weatherLink()}" target="_blank" rel="noopener" aria-label="${wx.label}, ${w.now} מעלות${w.city ? ' ב' + esc(w.city) : ''}">
           <span class="wx-emoji">${wx.icon}</span><span>${w.now}°${w.city ? ` <span class="wx-city">${esc(w.city)}</span>` : ''}</span><span class="wx-range ltr">${w.min}°–${w.max}°</span></a>` : '<span class="chip-btn wx" aria-hidden="true" style="opacity:.4">…</span>'}
@@ -561,6 +561,7 @@ export function render() {
       ${isToday() ? (p => `<span class="mini-progress">${p.done}/${p.total}</span>`)(progress()) : ''}
     </div>`;
   scrollTo(0, y);
+  glideSheet();
   observeHero();
   playFlip();
 }
@@ -627,7 +628,7 @@ export function bindMain() {
       case 'add-event': openAdd({ kind: 'event' }); break;
       case 'settings': openSettings({ onLogin: handlers.login }); break;
       case 'refresh': refresh(); handlers.weather?.(true); break;
-      case 'today': view.slide = state.day < new Date() ? 'in-left' : 'in-right'; setDay(new Date()); setTimeout(() => { view.slide = ''; }, 400); break;
+      case 'today': view.slide = state.day < new Date() ? 'in-left' : 'in-right'; markSheet(); setDay(new Date()); setTimeout(() => { view.slide = ''; }, 400); break;
       case 'toggle-done': view.openDone = !view.openDone; render(); break;
       case 'ahead': view.aheadTab = id; render(); break;
       case 'add-menu': openAdd({ kind: 'task' }); break;
@@ -647,7 +648,7 @@ export function bindMain() {
   hintEl.setAttribute('aria-hidden', 'true');
   document.body.append(hintEl);
   const TH = 70;
-  const hideHint = () => { hintEl.className = 'swipe-hint'; document.querySelectorAll('.body, .day-name, .date-text').forEach(el => el.style.removeProperty('transform')); };
+  const hideHint = () => { hintEl.className = 'swipe-hint'; document.querySelectorAll('.body > *, .day-name, .date-text').forEach(el => el.style.removeProperty('transform')); };
   document.addEventListener('touchstart', e => {
     if (e.touches.length !== 1 || blocked(e.target)) { x0 = null; return; }
     x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; t0 = Date.now(); horiz = null;
@@ -665,7 +666,7 @@ export function bindMain() {
     hintEl.style.setProperty('--p', p);
     hintEl.innerHTML = `${icon(next ? 'arrowL' : 'arrowR')}<span>${sameDay(d, new Date()) ? 'היום' : relLabelShort(d)}</span>`;
     const shift = `translateX(${Math.sign(dx) * Math.min(40, Math.abs(dx) * .35)}px)`;
-    document.querySelectorAll('.body, .day-name, .date-text').forEach(el => el.style.setProperty('transform', shift));
+    document.querySelectorAll('.body > *, .day-name, .date-text').forEach(el => el.style.setProperty('transform', shift));
   }, { passive: true });
   document.addEventListener('touchend', e => {
     if (x0 == null) return;
@@ -683,9 +684,25 @@ export function bindMain() {
 
 export function goDay(n) {
   view.slide = n > 0 ? 'in-left' : 'in-right';
+  markSheet();
   setDay(n === 0 ? new Date() : addDays(state.day, n));
   clearTimeout(goDay.t);
   goDay.t = setTimeout(() => { view.slide = ''; }, 400);
+}
+
+// the sheet stays put while the day changes; if the new day has a widget (or loses one) it glides to its new height
+function markSheet() {
+  const b = document.querySelector('.body');
+  if (b) view.sheetTop = b.getBoundingClientRect().top + scrollY;
+}
+function glideSheet() {
+  if (view.sheetTop == null) return;
+  const b = document.querySelector('.body');
+  const from = view.sheetTop; view.sheetTop = null;
+  if (!b || reducedMotion()) return;
+  const dy = from - (b.getBoundingClientRect().top + scrollY);
+  if (Math.abs(dy) < 1) return;
+  b.animate([{ transform: `translateY(${dy}px)` }, { transform: 'none' }], { duration: 420, easing: 'cubic-bezier(.3, 0, .1, 1)' });
 }
 
 export { ymd };
