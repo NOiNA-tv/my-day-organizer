@@ -101,7 +101,7 @@ a.btn, a.tile, a.chip-btn, .nav-grid a, .c-links a { text-decoration: none; }
 .ring .track { stroke: color-mix(in srgb, var(--header-ink) 14%, transparent); }
 .ring .val { stroke: var(--header-ink); transition: stroke-dashoffset .8s var(--ease-emph); }
 .ring-label { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; line-height: 1; }
-.ring-num { font-family: var(--display); font-weight: 700; font-size: 38px; direction: ltr; }
+.ring-num { font-weight: 700; font-size: 24px; direction: ltr; letter-spacing: -.02em; }
 .ring-sub { font-size: 11.5px; font-weight: 600; opacity: .75; margin-top: 2px; }
 
 /* "next up" — the widget */
@@ -126,7 +126,7 @@ a.btn, a.tile, a.chip-btn, .nav-grid a, .c-links a { text-decoration: none; }
 .minibar.show { transform: none; }
 .minibar b { font-family: var(--display); font-size: 34px; line-height: 1; font-weight: 700; }
 .minibar span { font-weight: 600; opacity: .8; margin-inline-end: auto; }
-.mini-progress { font-weight: 700; font-size: 14px; direction: ltr; }
+.mini-progress { font-weight: 700; font-family: var(--text); font-size: 14px; direction: ltr; }
 
 /* ---------- sheet body ---------- */
 .body {
