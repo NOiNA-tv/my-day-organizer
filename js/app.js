@@ -34,7 +34,7 @@ async function boot() {
     login: () => auth.login({ silent: false }),
     weather: loadWeather,
     wizard: (mode, origin) => openWizard(mode, origin, extras()),
-    digestSeen: id => { markDigestSeen(id); if (view.digest) view.digest.seen = true; },
+    digestSeen: id => { markDigestSeen(id); if (view.digest?.id === id) view.digest.seen = true; if (view.issues?.[id]) view.issues[id].seen = true; },
   });
 
   let raf = 0;

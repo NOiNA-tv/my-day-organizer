@@ -59,22 +59,34 @@ export async function weather({ force = false } = {}) {
 export const weatherLink = () => 'https://www.google.com/search?q=' + encodeURIComponent('מזג אוויר');
 
 // Latest Design Digest issue (same origin → no CORS)
-export async function latestDigest() {
-  try {
-    const idx = await (await fetch(`${DIGEST_URL}data/index.json`, { cache: 'no-cache' })).json();
-    const latest = idx.issues?.[0];
-    if (!latest) return null;
-    const issue = await (await fetch(`${DIGEST_URL}data/${latest.id}.json`)).json();
+// Issues by date (each issue's id is its Sunday, e.g. 2026-10-04)
+let digestIdx = null;
+const issueCache = new Map();
+export async function digestIndex() {
+  if (!digestIdx) digestIdx = fetch(`${DIGEST_URL}data/index.json`, { cache: 'no-cache' }).then(r => r.json()).then(j => (j.issues || []).map(x => ({ id: x.id, label: x.he }))).catch(() => []);
+  return digestIdx;
+}
+export async function digestIssue(id) {
+  if (issueCache.has(id)) return issueCache.get(id);
+  const p = (async () => {
+    const meta = (await digestIndex()).find(x => x.id === id);
+    if (!meta) return null;
+    const issue = await (await fetch(`${DIGEST_URL}data/${id}.json`)).json();
     const top = (issue.items || []).filter(i => i.top).sort((a, b) => a.top - b.top).slice(0, 5);
     // cover: the most-mentioned of the top five that has a picture
     const score = i => (i.mentions || []).reduce((n, m) => n + (m.count || 1), 0);
     const cover = [...top].filter(i => i.image).sort((a, b) => score(b) - score(a) || a.top - b.top)[0]?.image || '';
     return {
-      cover,
-      id: latest.id, label: latest.he, intro: issue.intro?.he || issue.intro?.en || '',
-      stats: issue.stats, url: DIGEST_URL, top: top.map(i => ({ title: i.title?.he || i.title?.en, image: i.image })),
-      seen: store.get('digestSeen') === latest.id,
+      id, cover, label: meta.label, intro: issue.intro?.he || issue.intro?.en || '',
+      stats: issue.stats, url: `${DIGEST_URL}?issue=${id}`, top: top.map(i => ({ title: i.title?.he || i.title?.en, image: i.image })),
+      seen: (store.get('digestSeenAll') || []).includes(id) || store.get('digestSeen') === id,
     };
-  } catch { return null; }
+  })().catch(() => null);
+  issueCache.set(id, p);
+  return p;
 }
-export const markDigestSeen = id => store.set('digestSeen', id);
+export async function latestDigest() {
+  const idx = await digestIndex();
+  return idx[0] ? digestIssue(idx[0].id) : null;
+}
+export const markDigestSeen = id => { store.set('digestSeen', id); store.set('digestSeenAll', [...new Set([...(store.get('digestSeenAll') || []), id])]); };

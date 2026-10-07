@@ -6,7 +6,7 @@ import {
 } from './data.js';
 import { haptic, esc, hm, dayName, longDate, shortDate, addDays, ymd, fromYmd, daysBetween, daysLeftLabel, countdown, sameDay, startOfDay, relDayLabel } from './util.js';
 import { openEvent, openTask, openAdd, openSettings, openDeferMenu, eventTimeText } from './sheets.js';
-import { wmo, weatherLink } from './extras.js';
+import { wmo, weatherLink, digestIssue } from './extras.js';
 import { auth } from './auth.js';
 import { store } from './util.js';
 
@@ -51,21 +51,28 @@ function nextWidget() {
   return `<div class="next"><i class="next-mark" style="background:var(--ok)"></i><div class="next-body"><div class="next-k">אין עוד אירועים או משימות להיום</div><div class="next-t">היום שלך פנוי ✨</div></div></div>`;
 }
 
-// The digest ("התלקיט") shows up on Sundays once that week's issue is out
-function digestReady() {
-  const dg = view.digest;
-  if (!dg || !state.settings.digestEnabled || !isToday()) return false;
-  const now = new Date();
-  return (now.getDay() === 0 && dg.id === ymd(now)) || store.get('debugDigest');
+// The digest ("התלקיט") shows up on Sundays that have an issue (today or any Sunday you swipe to)
+function digestForDay() {
+  if (!state.settings.digestEnabled) return null;
+  const d = state.day;
+  const id = ymd(d);
+  if (d.getDay() !== 0 && !store.get('debugDigest')) return null;
+  const want = store.get('debugDigest') && d.getDay() !== 0 ? view.digest?.id : id;
+  if (!want) return null;
+  const cached = view.issues?.[want];
+  if (cached !== undefined) return cached;
+  view.issues = view.issues || {};
+  view.issues[want] = null;
+  digestIssue(want).then(x => { view.issues[want] = x; if (x) render(); });
+  return null;
 }
-function digestCard() {
-  const dg = view.digest;
+function digestCard(dg) {
   return `
     <a class="dg-card ${dg.seen ? 'seen' : ''}" href="${dg.url}" target="_blank" rel="noopener" data-act="digest" data-id="${dg.id}">
       ${dg.cover ? `<img class="dg-bg" src="${esc(dg.cover)}" alt="" referrerpolicy="no-referrer" onerror="this.remove()">` : ''}
       <span class="dg-ic" aria-hidden="true">¶</span>
       <div class="next-body">
-        <div class="next-k">${dg.seen ? 'הגיליון של השבוע' : 'גיליון חדש · יום ראשון'}</div>
+        <div class="next-k">${dg.seen ? `הגיליון של ${esc(dg.label)}` : `גיליון חדש · ${esc(dg.label)}`}</div>
         <div class="next-t">התלקיט</div>
         <div class="dg-s">מה קרה השבוע בעיצוב ובאנימציה</div>
       </div>
@@ -90,7 +97,7 @@ function hero() {
         <div class="date-text">${longDate(d)}${today ? '' : ` · <span class="rel">${relLabel(d)}</span>`}</div>
         <div class="day-side">${today ? ring(progress()) : `<button class="back-today" data-act="today"><svg viewBox="0 0 92 92" aria-hidden="true"><circle cx="46" cy="46" r="40" fill="none" stroke-width="8" stroke-dasharray="10.5 6.255"/></svg><span class="bt-in">${icon(d < new Date() ? 'arrowL' : 'arrowR')}<span>חזרה<br>להיום</span></span></button>`}</div>
       </div>
-      ${today && digestReady() ? digestCard() : ''}
+      ${(dg => dg ? digestCard(dg) : '')(digestForDay())}
       ${today ? nextWidget() : ''}
     </header>`;
 }

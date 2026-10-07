@@ -729,3 +729,8 @@ select.inp { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.
 .pilcrow { font-family: Georgia, serif; font-weight: 700; font-size: 1.15em; line-height: 1; }
 .ev-side { flex-wrap: wrap; justify-content: flex-end; max-width: 128px; row-gap: 6px; }
 .ev.live .ev-side { flex-wrap: nowrap; max-width: none; }
+/* tighter gap between the date and the list sheet */
+.hero { padding-bottom: 26px; }
+.body { margin-top: -18px; }
+.next, .dg-card { margin-top: 14px; }
+.dg-card + .next { margin-top: 10px; }
