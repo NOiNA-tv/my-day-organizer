@@ -767,3 +767,37 @@ select.inp { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.
 .body > .banner:first-child { margin-top: 14px; }
 .dg-view .dg-close { opacity: 0; transition: opacity .25s ease; }
 .dg-view.ready .dg-close { opacity: 1; }
+.dg-view.closing iframe { opacity: 0; visibility: hidden; transition: opacity .15s ease, visibility 0s .15s; }
+.dg-view.closing .dg-close { opacity: 0; }
+
+/* time picker */
+.tp-scrim { position: fixed; inset: 0; z-index: 95; background: var(--scrim); opacity: 0; transition: opacity .22s; }
+.tp-scrim.show { opacity: 1; }
+.tp {
+  position: fixed; z-index: 96; left: 50%; top: 50%; width: min(340px, calc(100vw - 32px)); transform: translate(-50%, -46%) scale(.96); opacity: 0;
+  background: var(--surface); color: var(--ink); border-radius: 26px; padding: 18px 18px 16px; box-shadow: 0 24px 60px rgba(0, 0, 0, .3);
+  transition: transform .26s var(--ease-emph), opacity .2s;
+}
+.tp.show { transform: translate(-50%, -50%); opacity: 1; }
+.tp-head { display: flex; align-items: center; gap: 8px; font-size: 16px; color: var(--ink-2); }
+.tp-head .ic { width: 18px; height: 18px; color: var(--brand-deep); }
+.tp-wheels { position: relative; direction: ltr; display: flex; align-items: center; justify-content: center; gap: 6px; height: 220px; margin: 12px 0 14px; }
+.tp-band { position: absolute; inset-inline: 18px; top: 50%; height: 44px; transform: translateY(-50%); border-radius: 14px; background: var(--brand-soft); border: 1.5px solid color-mix(in srgb, var(--brand) 60%, transparent); }
+.tp-wheel {
+  position: relative; height: 220px; width: 92px; overflow-y: auto; scroll-snap-type: y mandatory; scrollbar-width: none; overscroll-behavior: contain;
+  mask-image: linear-gradient(to bottom, transparent, #000 30%, #000 70%, transparent);
+}
+.tp-wheel::-webkit-scrollbar { display: none; }
+.tp-pad { height: 88px; }
+.tp-item { height: 44px; display: grid; place-items: center; scroll-snap-align: center; font-family: var(--text); font-size: 26px; font-weight: 600; color: var(--ink-3); font-variant-numeric: tabular-nums; cursor: pointer; transition: color .15s, transform .15s; }
+.tp-item.on { color: var(--ink); font-weight: 800; transform: scale(1.12); }
+.tp-colon { position: relative; font-size: 28px; font-weight: 800; color: var(--brand-deep); }
+.tp-actions { display: flex; gap: 8px; }
+.tp-actions .btn { height: 46px; }
+.time-btn { width: auto; min-width: 140px; text-align: center; font-weight: 700; font-variant-numeric: tabular-nums; }
+/* the "+" button sits as far from the sheet's top edge as from its left edge (20px) */
+.body { padding-top: 0; }
+.body > .sec:first-of-type, .body > .banner + .sec, .body > .banner:first-child { margin-top: 20px; }
+.body { padding-top: 20px; }
+.body > .sec:first-of-type, .body > .banner:first-child { margin-top: 0; }
+.body > .banner + .sec { margin-top: 20px; }

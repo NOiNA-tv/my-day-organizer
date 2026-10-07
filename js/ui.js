@@ -8,6 +8,7 @@ import { reducedMotion, haptic, esc, hm, dayName, longDate, shortDate, addDays, 
 import { openEvent, openTask, openAdd, openSettings, openDeferMenu, eventTimeText } from './sheets.js';
 import { wmo, weatherLink, digestIssue } from './extras.js';
 import { auth } from './auth.js';
+import { openTimePicker } from './timepicker.js';
 import { store } from './util.js';
 
 export const view = { weather: null, digest: null, openDone: false, openNoDate: false };
@@ -111,12 +112,13 @@ function openDigest(card) {
     removeEventListener('popstate', onPop);
     if (!fromPop && history.state?.digest) history.back();
     ov.classList.remove('ready');
+    ov.classList.add('closing'); // page fades in 150ms; iframes don't always respect rounded clipping
     const cr = card.isConnected ? card.getBoundingClientRect() : from;
     const rr = { top: cr.top, left: cr.left, width: cr.width, height: cr.height, radius: 18 };
     const done = () => { ov.remove(); document.documentElement.classList.remove('wiz-open'); };
     if (reducedMotion()) return done();
     // fade the page out first, then ease the panel back into the card (gentle deceleration, no snap)
-    ov.animate([box(full), { ...box({ ...full, radius: 10 }), offset: .15 }, box(rr)], { duration: 560, delay: 120, easing: 'cubic-bezier(.32, .72, .24, 1)', fill: 'forwards' }).finished.then(done, done);
+    ov.animate([box(full), { ...box({ ...full, radius: 18 }), offset: .12 }, box(rr)], { duration: 600, delay: 170, easing: 'cubic-bezier(.45, 0, .2, 1)', fill: 'forwards' }).finished.then(done, done);
   };
   const onPop = () => close(true);
   addEventListener('popstate', onPop);
@@ -257,7 +259,7 @@ function comboTaskRow(t, time) {
   const past = time && time < new Date();
   return `
     <div class="task combo ${time ? '' : 'untimed'} ${past ? 'past' : ''}" data-task="${t.id}" data-fk="t${t.id}" data-slot="task" ${time ? `data-time="${time.toISOString()}"` : ''}>
-      ${time ? `<label class="t-time"><span>${hm(time)}</span><input type="time" data-ttime="${t.id}" value="${hm(time)}" aria-label="שעת תזכורת ${hm(time)}, לשינוי"></label>` : ''}
+      ${time ? `<button class="t-time" data-ttime="${t.id}" aria-label="שעת תזכורת ${hm(time)}, לשינוי">${hm(time)}</button>` : ''}
       <button class="check" data-act="toggle" data-id="${t.id}" aria-label="סימון כבוצע: ${esc(t.title)}"><span>${icon('check')}</span></button>
       <button class="task-main" data-act="task" data-id="${t.id}">
         <div class="task-title">${esc(t.title)}</div>
@@ -575,15 +577,23 @@ export function bindMain() {
   document.addEventListener('click', e => { if (swallowClick) { e.stopPropagation(); e.preventDefault(); } }, true);
   document.addEventListener('contextmenu', e => { if (e.target.closest('.task.combo')) e.preventDefault(); });
   // the time on a task is a real (invisible) time input over the label: a tap opens the phone's picker
-  document.addEventListener('change', e => {
-    const t = e.target.closest?.('input[data-ttime]');
-    if (!t || !t.value) return;
+  document.addEventListener('click', e => {
+    const t = e.target.closest('[data-ttime]');
+    if (!t || t.closest('.sheet')) return;
+    e.stopPropagation();
     const id = t.dataset.ttime;
-    const [h, m] = t.value.split(':').map(Number);
-    const d = new Date(state.day); d.setHours(h, m, 0, 0);
-    captureFlip();
-    state.tieOrder[id] = Date.now(); saveOrder();
-    setTaskReminder(id, d, { quiet: false });
+    const r = reminderOf(id);
+    openTimePicker({
+      value: r ? hm(r.time) : '',
+      onSave: v => {
+        const [h, m] = v.split(':').map(Number);
+        const d = new Date(state.day); d.setHours(h, m, 0, 0);
+        captureFlip();
+        state.tieOrder[id] = Date.now(); saveOrder();
+        setTaskReminder(id, d, { quiet: false });
+      },
+      onClear: () => { captureFlip(); setTaskReminder(id, null); },
+    });
   });
   document.addEventListener('click', e => {
     const b = e.target.closest('[data-act]');

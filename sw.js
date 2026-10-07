@@ -1,9 +1,9 @@
 // Service worker: offline app shell + push notifications.
-const VERSION = 'v11';
+const VERSION = 'v12';
 const SHELL = [
   './', 'index.html', 'manifest.webmanifest', 'css/app.css',
   'js/app.js', 'js/auth.js', 'js/config.js', 'js/data.js', 'js/demo.js', 'js/extras.js', 'js/google.js', 'js/icons.js',
-  'js/overlay.js', 'js/push.js', 'js/sheets.js', 'js/ui.js', 'js/util.js', 'js/voice.js', 'js/wizard.js',
+  'js/overlay.js', 'js/push.js', 'js/sheets.js', 'js/ui.js', 'js/util.js', 'js/voice.js', 'js/wizard.js', 'js/timepicker.js',
   'icons/icon-192.png', 'icons/icon.svg',
 ];
 

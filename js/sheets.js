@@ -9,6 +9,7 @@ import { esc, hm, longDate, dayName, ymd, fromYmd, addDays, addMonths, startOfDa
 import { voiceSupported, listen, parseHebrew } from './voice.js';
 import { auth } from './auth.js';
 import { pushPanel, loadPushInfo } from './push.js';
+import { openTimePicker } from './timepicker.js';
 
 // ---------- shared bits ----------
 export function linkify(raw = '') {
@@ -184,7 +185,7 @@ export function openTask(id) {
       <textarea class="inp" data-key="notes" placeholder="הערות, קישורים…">${esc(t.notes)}</textarea>
       <div class="field-label">${icon('bell')}תזכורת</div>
       <div class="rem-row">
-        <input class="inp" type="time" data-key="rtime" value="${timeValue(r?.time)}" aria-label="שעת תזכורת">
+        <button class="inp time-btn" data-pick-rtime>${r ? hm(r.time) : 'בחירת שעה'}</button>
         ${r ? `<button class="btn sm" data-clear-rem>${icon('bellOff')}ללא</button>` : ''}
       </div>
       <p class="small-print" style="margin-top:6px">${r ? `התראה תגיע ב־${hm(r.time)}, ${relDayLabel(r.time)}. ` : ''}אפשר גם לגרור את המשימה ברשימה של היום, והשעה תתעדכן לפי המקום.</p>
@@ -202,6 +203,15 @@ export function openTask(id) {
     const ds = e.target.closest('[data-delsub]');
     if (ds) { deleteTask(ds.dataset.delsub); paintSheet(); return; }
     if (e.target.closest('[data-clear-rem]')) { setTaskReminder(id, null); setTimeout(paintSheet, 50); return; }
+    if (e.target.closest('[data-pick-rtime]')) {
+      const t = state.tasks.find(x => x.id === id), r = reminderOf(id);
+      openTimePicker({
+        value: r ? hm(r.time) : '',
+        onSave: v => { const [h, m] = v.split(':').map(Number); const d = reminderBase(t); d.setHours(h, m, 0, 0); setTaskReminder(id, d, { quiet: false }); setTimeout(paintSheet, 50); },
+        onClear: r ? () => { setTaskReminder(id, null); setTimeout(paintSheet, 50); } : null,
+      });
+      return;
+    }
     if (e.target.closest('[data-defer]')) { openDeferMenu(e.target.closest('[data-defer]'), id); return; }
     if (e.target.closest('[data-del]')) { closeSheet(); deleteTask(id); }
   });
@@ -270,7 +280,7 @@ export function openAdd({ kind = 'task', voice = false, date = null } = {}) {
       <div class="field-label">פרטים</div>
       <textarea class="inp" data-key="notes" placeholder="לא חובה">${esc(f.notes)}</textarea>
       <div class="field-label">${icon('bell')}תזכורת</div>
-      <input class="inp" type="time" data-key="rtime" value="${f.rtime}" aria-label="שעת תזכורת" style="width:auto">
+      <button class="inp time-btn" data-pick-rtime>${f.rtime || 'בחירת שעה'}</button>
       ${listSelect('list', f.list)}
     ` : `
       <div class="field-label">${icon('calendar')}מתי</div>
@@ -314,6 +324,7 @@ export function openAdd({ kind = 'task', voice = false, date = null } = {}) {
     else if (b.dataset.dur) { f.dur = Number(b.dataset.dur); f.allDay = false; paintSheet(); }
     else if ('allday' in b.dataset) { f.allDay = !f.allDay; paintSheet(); }
     else if (b.dataset.rmsub) { f.subs.splice(Number(b.dataset.rmsub), 1); paintSheet(); }
+    else if ('pickRtime' in b.dataset) openTimePicker({ value: f.rtime, onSave: v => { f.rtime = v; paintSheet(); }, onClear: f.rtime ? () => { f.rtime = ''; paintSheet(); } : null });
     else if ('save' in b.dataset) save();
     else if ('mic' in b.dataset) toggleMic();
   });
