@@ -1,9 +1,9 @@
 // Main screen.
 import { icon } from './icons.js';
 import {
-  state, eventsOn, taskGroups, progress, nextUp, isToday, calById, calColor, setDay, refresh, toggleTask, APP_PALETTE,
+  state, eventsOn, taskGroups, progress, nextUp, isToday, calById, calColor, setDay, refresh, toggleTask, APP_PALETTE, snoozedUntil,
 } from './data.js';
-import { esc, hm, dayName, longDate, shortDate, addDays, ymd, fromYmd, daysBetween, daysLeftLabel, countdown, sameDay, startOfDay } from './util.js';
+import { esc, hm, dayName, longDate, shortDate, addDays, ymd, fromYmd, daysBetween, daysLeftLabel, countdown, sameDay, startOfDay, relDayLabel } from './util.js';
 import { openEvent, openTask, openAdd, openSettings, openDeferMenu, eventTimeText } from './sheets.js';
 import { wmo, weatherLink } from './extras.js';
 import { auth } from './auth.js';
@@ -71,6 +71,7 @@ function hero() {
     </header>`;
 }
 
+const relLabelShort = d => { const n = daysBetween(new Date(), d); return n === 1 ? 'מחר' : n === -1 ? 'אתמול' : `יום ${dayName(d)}`; };
 const relLabel = d => { const n = daysBetween(new Date(), d); return n > 0 ? (n === 1 ? 'מחר' : `בעוד ${n} ימים`) : (n === -1 ? 'אתמול' : `לפני ${-n} ימים`); };
 
 // ---------- events ----------
@@ -101,7 +102,7 @@ function eventRow(ev, now) {
     </button>`;
 }
 
-const nowLine = now => `<div class="now" role="separator" aria-label="השעה עכשיו ${hm(now)}"><b>עכשיו ${hm(now)}</b><i></i></div>`;
+const nowLine = now => `<div class="now" role="separator" aria-label="השעה עכשיו ${hm(now)}"><b>${hm(now)}</b><i></i></div>`;
 
 function eventsSection() {
   const evs = eventsOn(state.day);
@@ -115,7 +116,7 @@ function eventsSection() {
   if (!nowDrawn && timed.length) rows += nowLine(now);
   return `
     <section class="sec" aria-labelledby="h-ev">
-      <div class="sec-h"><h2 id="h-ev">ביומן</h2>${evs.length ? `<span class="count">${evs.length}</span>` : ''}
+      <div class="sec-h"><h2 id="h-ev">ביומן ${isToday() ? 'להיום' : `ליום ${dayName(state.day)}`}</h2>${evs.length ? `<span class="count">${evs.length}</span>` : ''}
         <button class="icon-btn" data-act="add-event" aria-label="אירוע חדש">${icon('plus')}</button></div>
       <div class="group mk-${state.settings.marker}">
         ${allDay.length ? `<div class="allday">${allDay.map(e => `<button class="ad-chip" data-act="event" data-id="${e.id}">${e.birthday ? '<span class="cake">🎂</span>' : `<i style="background:${calColor(calById(e.calId))}"></i>`}${esc(e.title)}</button>`).join('')}</div>` : ''}
@@ -130,13 +131,15 @@ function taskRow(t, { showDue = false } = {}) {
   const n = t.due ? daysBetween(new Date(), fromYmd(t.due)) : null;
   const subsDone = t.subtasks.filter(s => s.status === 'completed').length;
   const meta = [];
+  const sz = !done && snoozedUntil(t.id);
+  if (sz) meta.push(`<span class="snz">⏰ חוזרת ב־${hm(sz)}</span>`);
   if (!done && n != null && n < 0) meta.push(`<span class="late">${daysLeftLabel(n)}</span>`);
   if (t.subtasks.length) meta.push(`<span>${icon('list')} ${subsDone}/${t.subtasks.length}</span>`);
   if (t.notes) meta.push(`<span>${icon('pencil')} הערות</span>`);
   if (state.lists.length > 1) meta.push(`<span>${esc(t.listTitle || '')}</span>`);
   const pill = showDue && n != null ? `<span class="due-pill ${n <= 2 ? 'hot' : n <= 5 ? 'warm' : ''}" title="${shortDate(fromYmd(t.due))}">${daysLeftLabel(n)}</span>` : '';
   return `
-    <div class="task ${done ? 'done' : ''}" data-task="${t.id}">
+    <div class="task ${done ? 'done' : ''} ${sz ? 'snoozed' : ''}" data-task="${t.id}">
       <button class="check ${done ? 'on' : ''}" data-act="toggle" data-id="${t.id}" aria-label="${done ? 'החזרה לפתוחה' : 'סימון כבוצע'}: ${esc(t.title)}"><span>${icon('check')}</span></button>
       <button class="task-main" data-act="task" data-id="${t.id}">
         <div class="task-title">${esc(t.title)}</div>
@@ -147,7 +150,9 @@ function taskRow(t, { showDue = false } = {}) {
 }
 
 function tasksSection() {
-  const { dueNow, doneToday, upcoming, noDate } = taskGroups();
+  const g = taskGroups();
+  const { doneToday, upcoming, noDate } = g;
+  const dueNow = [...g.dueNow].sort((a, b) => !!snoozedUntil(a.id) - !!snoozedUntil(b.id)); // snoozed ones sink to the bottom
   const today = isToday();
   return `
     <section class="sec" aria-labelledby="h-t">
@@ -160,16 +165,51 @@ function tasksSection() {
           ${view.openDone ? doneToday.map(t => taskRow(t)).join('') : ''}` : ''}
       </div>
     </section>
-    ${upcoming.length || noDate.length ? `
-    <section class="sec" aria-labelledby="h-up">
-      <div class="sec-h"><h2 id="h-up">עוד החודש</h2><span class="count">עד ${longDate(addDays(state.day, 30))}</span></div>
-      <div class="group">
-        ${upcoming.map(t => taskRow(t, { showDue: true })).join('') || '<div class="empty">אין משימות מתוזמנות לחודש הקרוב.</div>'}
-        ${noDate.length ? `
-          <button class="disclosure" data-act="toggle-nodate" aria-expanded="${view.openNoDate}">בלי תאריך (${noDate.length})${icon('chevD')}</button>
-          ${view.openNoDate ? noDate.map(t => taskRow(t)).join('') : ''}` : ''}
+    ${aheadSection(upcoming, noDate)}`;
+}
+
+// "עוד השבוע" (events in the next 7 days) and "עוד החודש" (tasks) — one card, two tabs
+function aheadSection(upcoming, noDate) {
+  const tab = view.aheadTab || 'week';
+  const end = tab === 'week' ? addDays(state.day, 7) : addDays(state.day, 30);
+  let body = '';
+  if (tab === 'week') {
+    for (let k = 1; k <= 7; k++) {
+      const d = addDays(state.day, k);
+      const evs = eventsOn(d);
+      if (!evs.length) continue;
+      const n = daysBetween(new Date(), d);
+      body += `<div class="day-head"><b>${n === 1 ? 'מחר' : n === 2 ? 'מחרתיים' : `יום ${dayName(d)}`}</b><span>${n <= 2 ? `יום ${dayName(d)}, ` : ''}${longDate(d)}</span></div>`;
+      body += evs.map(ev => weekRow(ev, d)).join('');
+    }
+    body ||= '<div class="empty">אין אירועים בשבוע הקרוב.</div>';
+  } else {
+    body = upcoming.map(t => taskRow(t, { showDue: true })).join('') || '<div class="empty">אין משימות מתוזמנות לחודש הקרוב.</div>';
+    if (noDate.length) body += `<button class="disclosure" data-act="toggle-nodate" aria-expanded="${view.openNoDate}">בלי תאריך (${noDate.length})${icon('chevD')}</button>${view.openNoDate ? noDate.map(t => taskRow(t)).join('') : ''}`;
+  }
+  return `
+    <section class="sec" aria-label="מה בהמשך">
+      <div class="sec-h ahead-h">
+        <div class="tabs" role="tablist">
+          <button role="tab" data-act="ahead" data-id="week" aria-selected="${tab === 'week'}">עוד השבוע</button>
+          <button role="tab" data-act="ahead" data-id="month" aria-selected="${tab === 'month'}">עוד החודש</button>
+        </div>
+        <span class="count">עד ${longDate(end)}</span>
       </div>
-    </section>` : ''}`;
+      <div class="group mk-${state.settings.marker}">${body}</div>
+    </section>`;
+}
+
+function weekRow(ev, d) {
+  const cal = calById(ev.calId), c = calColor(cal);
+  return `
+    <button class="ev wk" style="--c:${c}" data-act="event" data-id="${ev.id}">
+      <div class="ev-time">${ev.allDay ? '<small>כל היום</small>' : `${sameDay(ev.start, d) ? hm(ev.start) : '00:00'}<small>${hm(ev.end)}</small>`}</div>
+      <div class="ev-main"><i class="ev-bar" style="background:${c}"></i>
+        <div class="ev-text"><div class="ev-title">${esc(ev.title)}</div>
+          <div class="ev-meta"><span>${ev.birthday ? '<span class="cake">🎂</span>' : `<i class="cal-dot" style="background:${c}"></i>`}${esc(cal?.name || '')}</span>${ev.location ? `<span>${icon('pin')}${esc(ev.location.split(',')[0])}</span>` : ''}</div>
+        </div></div><div></div>
+    </button>`;
 }
 
 // ---------- tiles ----------
@@ -199,7 +239,7 @@ function tiles() {
   if (state.settings.digestEnabled && dg) {
     out.push(`<a class="tile digest" href="${dg.url}" data-act="digest" data-id="${dg.id}">
       ${dg.seen ? '' : '<i class="new-dot" aria-label="חדש"></i>'}
-      <span class="tile-ic">${icon('newspaper')}</span>
+      <span class="tile-ic digest-logo" aria-hidden="true"><svg viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="#3CC4DC"/><path d="M18 18h14a14 14 0 0 1 0 28H18z" fill="#052A31"/><circle cx="46" cy="18" r="5" fill="#FF5A3C"/></svg></span>
       <span class="tile-body"><span class="tile-t">${dg.seen ? 'דיג׳סט העיצוב' : 'גיליון חדש בדיג׳סט'}</span>
         <span class="tile-s" style="display:block">${esc(dg.label)} · ${dg.stats?.kept || ''} פריטים</span></span>
       <span class="digest-thumbs">${dg.top.slice(0, 2).map(t => t.image ? `<img src="${esc(t.image)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()">` : '').join('')}</span>
@@ -279,6 +319,7 @@ export function bindMain() {
       case 'refresh': refresh(); handlers.weather?.(true); break;
       case 'today': view.slide = state.day < new Date() ? 'in-left' : 'in-right'; setDay(new Date()); setTimeout(() => { view.slide = ''; }, 400); break;
       case 'toggle-done': view.openDone = !view.openDone; render(); break;
+      case 'ahead': view.aheadTab = id; render(); break;
       case 'toggle-nodate': view.openNoDate = !view.openNoDate; render(); break;
       case 'login': handlers.login?.(); break;
       case 'wizard': handlers.wizard?.('morning', b); break;
@@ -288,18 +329,40 @@ export function bindMain() {
     }
   });
   // swipe anywhere on the main screen to change day (RTL: the future is to the left, so swipe right → next day)
-  let x0 = null, y0 = null, t0 = 0;
-  const blocked = el => el.closest('.sheet, .wizard, .menu, .scrim, input, textarea, select, .fabs');
+  let x0 = null, y0 = null, t0 = 0, horiz = null;
+  const blocked = el => el.closest('.sheet, .wizard, .menu, .scrim, input, textarea, select, .fabs, .tabs');
+  const hintEl = document.createElement('div');
+  hintEl.className = 'swipe-hint';
+  hintEl.setAttribute('aria-hidden', 'true');
+  document.body.append(hintEl);
+  const TH = 70;
+  const hideHint = () => { hintEl.className = 'swipe-hint'; document.querySelector('.body')?.style.removeProperty('transform'); document.querySelector('.day-row')?.style.removeProperty('transform'); };
   document.addEventListener('touchstart', e => {
     if (e.touches.length !== 1 || blocked(e.target)) { x0 = null; return; }
-    x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; t0 = Date.now();
+    x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; t0 = Date.now(); horiz = null;
+  }, { passive: true });
+  document.addEventListener('touchmove', e => {
+    if (x0 == null) return;
+    const dx = e.touches[0].clientX - x0, dy = e.touches[0].clientY - y0;
+    if (horiz == null && (Math.abs(dx) > 12 || Math.abs(dy) > 12)) horiz = Math.abs(dx) > Math.abs(dy) * 1.4;
+    if (!horiz) return;
+    const next = dx > 0; // RTL: dragging right brings tomorrow in
+    const d = addDays(state.day, next ? 1 : -1);
+    const p = Math.min(1, Math.abs(dx) / TH);
+    hintEl.className = `swipe-hint show ${next ? 'from-left' : 'from-right'} ${p >= 1 ? 'ready' : ''}`;
+    hintEl.style.setProperty('--p', p);
+    hintEl.innerHTML = `${icon(next ? 'arrowL' : 'arrowR')}<span>${sameDay(d, new Date()) ? 'היום' : relLabelShort(d)}</span>`;
+    const shift = `translateX(${Math.sign(dx) * Math.min(40, Math.abs(dx) * .35)}px)`;
+    document.querySelector('.body')?.style.setProperty('transform', shift);
+    document.querySelector('.day-row')?.style.setProperty('transform', shift);
   }, { passive: true });
   document.addEventListener('touchend', e => {
     if (x0 == null) return;
     const dx = e.changedTouches[0].clientX - x0, dy = e.changedTouches[0].clientY - y0;
-    x0 = null;
-    if (Date.now() - t0 < 700 && Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.6) goDay(dx > 0 ? 1 : -1);
+    x0 = null; hideHint();
+    if (horiz && Math.abs(dx) >= TH && Math.abs(dx) > Math.abs(dy) * 1.4) goDay(dx > 0 ? 1 : -1);
   });
+  document.addEventListener('touchcancel', () => { x0 = null; hideHint(); });
   document.addEventListener('keydown', e => {
     if (document.querySelector('.sheet, .wizard, .menu') || e.target.closest?.('input, textarea')) return;
     if (e.key === 'ArrowLeft') goDay(1);

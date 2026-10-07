@@ -3,7 +3,7 @@ import { icon } from './icons.js';
 import { openSheet, paintSheet, closeSheet, openMenu } from './overlay.js';
 import {
   state, calById, calColor, setReminder, deleteEvent, toggleTask, updateTask, deferTask, deleteTask, addTask, addEvent,
-  saveSettings, refresh, APP_PALETTE, allTaskRoots, emit,
+  saveSettings, refresh, APP_PALETTE, allTaskRoots, emit, snoozeTask, api,
 } from './data.js';
 import { esc, hm, longDate, dayName, ymd, fromYmd, addDays, addMonths, startOfDay, countdown, relDayLabel, daysBetween, daysLeftLabel } from './util.js';
 import { voiceSupported, listen, parseHebrew } from './voice.js';
@@ -32,22 +32,22 @@ export function eventTimeText(ev) {
 }
 
 // Reminder times you can pick from (Settings decides which ones show up as chips)
-export const REMINDER_PRESETS = [0, 5, 10, 15, 30, 45, 60, 120, 180, 1440, 2880, 10080];
+export const REMINDER_PRESETS = [10080, 2880, 1440, 120, 60, 30, 15, 10, 5, 0];
 export const remShort = m => m == null ? 'ללא' : m === 0 ? 'בזמן האירוע' : m < 60 ? `${m} דק׳` : m === 60 ? 'שעה' : m === 120 ? 'שעתיים' : m < 1440 ? `${m / 60} שעות` : m === 1440 ? 'יום' : m === 2880 ? 'יומיים' : m === 10080 ? 'שבוע' : `${Math.round(m / 1440)} ימים`;
 export const reminderLabel = m => m == null ? 'ללא תזכורת' : m === 0 ? 'בזמן האירוע' : `${remShort(m)} לפני`;
 
-// The chips shown for one event: none · calendar default · your chosen times (+ the event's current value if it's something else)
+// Chips for one event. Several times can be on together (Google allows up to 5).
 export function reminderChips(ev) {
   const cal = calById(ev.calId);
-  const def = cal?.defaultReminders?.find(r => r.method === 'popup')?.minutes ?? null;
-  const opts = [{ v: 'null', label: 'ללא', on: !ev.reminderIsDefault && ev.reminder == null, icon: 'bellOff' },
-    { v: 'default', label: `ברירת מחדל${def != null ? ` (${remShort(def)})` : ''}`, on: ev.reminderIsDefault }];
-  const mins = [...state.settings.reminderOptions];
-  if (!ev.reminderIsDefault && ev.reminder != null && !mins.includes(ev.reminder)) mins.push(ev.reminder);
-  mins.sort((a, b) => a - b).forEach(m => opts.push({ v: String(m), label: remShort(m), on: !ev.reminderIsDefault && ev.reminder === m }));
-  return `<div class="seg">${opts.map(o => `<button type="button" data-rem="${o.v}" aria-pressed="${o.on}">${o.icon ? icon(o.icon) : ''}${o.label}</button>`).join('')}</div>`;
+  const def = (cal?.defaultReminders || []).filter(r => r.method === 'popup').map(r => r.minutes);
+  const on = new Set(ev.reminderIsDefault ? [] : ev.reminders || []);
+  const opts = [{ v: 'none', label: 'ללא', on: !ev.reminderIsDefault && !on.size, icon: 'bellOff' },
+    { v: 'default', label: `ברירת מחדל${def.length ? ` (${def.map(remShort).join(', ')})` : ''}`, on: ev.reminderIsDefault }];
+  const mins = [...new Set([...state.settings.reminderOptions, ...on])].sort((a, b) => b - a);
+  mins.forEach(m => opts.push({ v: String(m), label: remShort(m), on: on.has(m) }));
+  return `<div class="seg rem-seg">${opts.map(o => `<button type="button" data-rem="${o.v}" aria-pressed="${o.on}">${o.icon ? icon(o.icon) : ''}${o.label}</button>`).join('')}</div>`;
 }
-const parseRem = v => v === 'null' ? null : v === 'default' ? 'default' : Number(v);
+export const parseRem = v => v === 'none' || v === 'default' ? v : Number(v);
 
 // ---------- event sheet ----------
 export function openEvent(id) {
@@ -66,9 +66,9 @@ export function openEvent(id) {
       ${nav ? `
         <div class="field-label">${icon('pin')}${esc(ev.location)}</div>
         <div class="nav-grid">
-          <a href="${nav.walk}" target="_blank" rel="noopener">${icon('walk')}ברגל</a>
-          <a href="${nav.transit}" target="_blank" rel="noopener">${icon('bus')}תחבורה ציבורית</a>
-          <a href="${nav.car}" target="_blank" rel="noopener">${icon('car')}Waze</a>
+          <a href="${nav.walk}" target="_blank" rel="noopener">${icon('walk', 'rtl-flip')}ברגל</a>
+          <a href="${nav.transit}" target="_blank" rel="noopener">${icon('bus', 'rtl-flip')}תחבורה ציבורית</a>
+          <a href="${nav.car}" target="_blank" rel="noopener">${icon('car', 'rtl-flip')}Waze</a>
         </div>` : ''}
       ${ev.description ? `<div class="field-label">תיאור</div><div class="desc">${linkify(ev.description)}</div>` : ''}
       ${!ev.allDay && ev.canEdit ? `
@@ -88,19 +88,30 @@ export function openEvent(id) {
 }
 
 // ---------- defer ----------
-export function deferOptions(day = new Date()) {
-  const t = startOfDay(day);
+// Defer choices: an hour / two (snooze, comes back today) · tomorrow · day after · next week (Sunday)
+export function deferOptions() {
+  const now = new Date(), t = startOfDay(now);
+  const in1 = new Date(now.getTime() + 3600e3), in2 = new Date(now.getTime() + 7200e3);
+  const sunday = addDays(t, 7 - t.getDay());
+  const dm = d => `${d.getDate()}/${d.getMonth() + 1}`;
   return [
-    { key: 'tomorrow', icon: 'arrowL', label: 'מחר', hint: dayName(addDays(t, 1)), date: ymd(addDays(t, 1)) },
-    { key: 'week', icon: 'calendar', label: 'בעוד שבוע', hint: `${addDays(t, 7).getDate()}/${addDays(t, 7).getMonth() + 1}`, date: ymd(addDays(t, 7)) },
-    { key: 'other', icon: 'snooze', label: 'מועד אחר…' },
+    { key: '1h', icon: 'snooze', label: 'בעוד שעה', hint: hm(in1), snooze: 60 },
+    { key: '2h', icon: 'snooze', label: 'בעוד שעתיים', hint: hm(in2), snooze: 120 },
+    { key: 'tomorrow', icon: 'calendar', label: 'מחר', hint: `יום ${dayName(addDays(t, 1))}`, date: ymd(addDays(t, 1)) },
+    { key: 'after', icon: 'calendar', label: 'מחרתיים', hint: `יום ${dayName(addDays(t, 2))}`, date: ymd(addDays(t, 2)) },
+    { key: 'week', icon: 'calendar', label: 'שבוע הבא', hint: `א׳ ${dm(sunday)}`, date: ymd(sunday) },
+    { key: 'other', icon: 'pencil', label: 'תאריך אחר…' },
   ];
+}
+export function applyDefer(taskId, o, { silent = false } = {}) {
+  if (o.snooze) return snoozeTask(taskId, o.snooze, { silent });
+  if (o.date) return deferTask(taskId, o.date, o.label, { silent });
 }
 
 export function openDeferMenu(anchor, taskId) {
   const items = deferOptions().map(o => ({
     icon: o.icon, label: o.label, hint: o.hint,
-    onClick: () => o.date ? deferTask(taskId, o.date, o.label) : openDeferSheet(taskId),
+    onClick: () => (o.key === 'other' ? openDeferSheet(taskId) : applyDefer(taskId, o)),
   }));
   openMenu(anchor, items);
 }
@@ -271,7 +282,7 @@ export function openAdd({ kind = 'task', voice = false, date = null } = {}) {
       <div class="field-label">יומן</div>
       <select class="inp" data-key="cal">${writable().map(c => `<option value="${esc(c.id)}" ${c.id === f.cal ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select>
       <div class="field-label">${icon('bell')}תזכורת</div>
-      <div class="seg">${[['default', 'ברירת מחדל'], ['null', 'ללא'], ...state.settings.reminderOptions.map(m => [String(m), remShort(m)])].map(([m, l]) => `<button type="button" data-rem="${m}" aria-pressed="${String(f.reminder) === String(m)}">${l}</button>`).join('')}</div>
+      <div class="seg">${[['default', 'ברירת מחדל'], ['none', 'ללא'], ...state.settings.reminderOptions.map(m => [String(m), remShort(m)])].map(([m, l]) => `<button type="button" data-rem="${m}" aria-pressed="${m === 'default' ? f.reminder === 'default' : m === 'none' ? Array.isArray(f.reminder) && !f.reminder.length : Array.isArray(f.reminder) && f.reminder.includes(Number(m))}">${l}</button>`).join('')}</div>
     `}
     <div class="actions"><button class="btn primary grow" data-save ${f.title.trim() ? '' : 'disabled'}>${icon('check')}${f.kind === 'task' ? 'הוספת משימה' : 'הוספה ליומן'}</button></div>`,
   { onClose: () => stop?.() });
@@ -286,7 +297,7 @@ export function openAdd({ kind = 'task', voice = false, date = null } = {}) {
       let end;
       if (f.allDay) end = addDays(start, 1);
       else { const [h, m] = f.start.split(':').map(Number); start.setHours(h, m); end = new Date(start.getTime() + f.dur * 60000); }
-      await addEvent({ calId: f.cal, title: f.title.trim(), start, end, allDay: f.allDay, location: f.location, description: '', reminder: f.reminder === 'default' ? 'default' : f.reminder === 'null' ? null : Number(f.reminder) });
+      await addEvent({ calId: f.cal, title: f.title.trim(), start, end, allDay: f.allDay, location: f.location, description: '', reminder: f.reminder });
     }
   };
   el.addEventListener('click', e => {
@@ -295,7 +306,13 @@ export function openAdd({ kind = 'task', voice = false, date = null } = {}) {
     else if ('due' in b.dataset) { f.due = b.dataset.due; paintSheet(); }
     else if (b.dataset.dur) { f.dur = Number(b.dataset.dur); f.allDay = false; paintSheet(); }
     else if ('allday' in b.dataset) { f.allDay = !f.allDay; paintSheet(); }
-    else if (b.dataset.rem) { f.reminder = b.dataset.rem; paintSheet(); }
+    else if (b.dataset.rem) {
+      const v = b.dataset.rem;
+      if (v === 'default') f.reminder = 'default';
+      else if (v === 'none') f.reminder = [];
+      else { const m = Number(v); const cur = Array.isArray(f.reminder) ? f.reminder : []; f.reminder = cur.includes(m) ? cur.filter(x => x !== m) : [...cur, m]; }
+      paintSheet();
+    }
     else if ('save' in b.dataset) save();
     else if ('mic' in b.dataset) toggleMic();
   });
@@ -374,8 +391,11 @@ export function openSettings({ onLogin } = {}) {
       </div>
 
       <div class="field-label">${icon('bell')}זמני תזכורת לבחירה</div>
-      <p class="sub" style="margin:-2px 0 10px">אלה הזמנים שיופיעו ככפתורים באירועים. ״ברירת מחדל״ היא מה שהוגדר ליומן עצמו בגוגל.</p>
+      <p class="sub" style="margin:-2px 0 10px">אלה הזמנים שיופיעו ככפתורים באירועים (אפשר לסמן כמה יחד). ״ברירת מחדל״ היא מה שהוגדר ליומן עצמו בגוגל.</p>
       <div class="seg">${REMINDER_PRESETS.map(m => `<button type="button" data-remopt="${m}" aria-pressed="${s.reminderOptions.includes(m)}">${remShort(m)}</button>`).join('')}</div>
+
+      <div class="set-row"><div class="grow"><b>תזכורת לדוגמה</b><small>יוצר אירוע קצר ביומן הראשי בעוד 2 דקות, עם תזכורת דקה לפני. כך תשמע ותראה בדיוק איך תזכורת מגיעה לטלפון.</small></div>
+        <button class="btn sm" data-test-reminder>${icon('bellRing')}שליחה</button></div>
 
       <div class="field-label">${icon('mail')}מיילים לטיפול</div>
       <div class="set-row"><div class="grow"><b>להציג מיילים ב״מה איתי היום״</b><small>הכרטיסים מאפשרים לארכב או להפוך מייל למשימה</small></div>
@@ -383,7 +403,9 @@ export function openSettings({ onLogin } = {}) {
       ${s.gmailEnabled ? `<div class="set-row"><div class="grow"><small>אילו מיילים (חיפוש Gmail)</small>
         <input class="inp" data-key="gmailQuery" value="${esc(s.gmailQuery)}" dir="ltr" style="margin-top:6px;font-size:14px"></div></div>
         <div class="set-row"><div class="grow"><b>לכלול מיילים באשף הבוקר</b></div>
-        <button class="switch" role="switch" aria-checked="${s.wizardEmails}" data-toggle-set="wizardEmails" aria-label="מיילים באשף"></button></div>` : ''}
+        <button class="switch" role="switch" aria-checked="${s.wizardEmails}" data-toggle-set="wizardEmails" aria-label="מיילים באשף"></button></div>
+        ${state.labels.length ? `<div class="field-label">תוויות שיוצעו בארכוב מייל בלי תווית</div>
+          <div class="seg">${state.labels.map(l => `<button type="button" data-label-toggle="${esc(l.name)}" aria-pressed="${!(s.hiddenLabels || []).includes(l.name)}">${esc(l.name)}</button>`).join('')}</div>` : ''}` : ''}
 
       <div class="field-label">${icon('newspaper')}דיג׳סט עיצוב</div>
       <div class="set-row"><div class="grow"><b>להציג גיליון חדש של הדיג׳סט</b><small>כרטיס במסך הראשי ובאשף, בכל פעם שיוצא גיליון</small></div>
@@ -395,7 +417,7 @@ export function openSettings({ onLogin } = {}) {
       <div class="field-label">${icon('bellRing')}התראות בוקר וערב</div>
       ${pushPanel()}
 
-      <p class="small-print">גוגל משימות שומרות תאריך בלי שעה, ולכן אין דחייה ״להמשך היום״. דבר שצריך לקרות בשעה מסוימת עדיף להוסיף כאירוע ביומן, עם תזכורת.<br>${state.lastSync ? `סונכרן לאחרונה ב־${hm(state.lastSync)}.` : ''}</p>`;
+      <p class="small-print">גוגל משימות שומרות תאריך בלי שעה. ״בעוד שעה / שעתיים״ מסתיר את המשימה עד אז ומוסיף ליומן הראשי אירוע קטן (⏰) שמצלצל כשהיא חוזרת; האירוע נמחק לבד אחר כך.<br>${state.lastSync ? `סונכרן לאחרונה ב־${hm(state.lastSync)}.` : ''}</p>`;
   });
   const el = document.querySelector('.sheet');
   el.addEventListener('click', e => {
@@ -413,6 +435,11 @@ export function openSettings({ onLogin } = {}) {
       saveSettings({ calColors: cc });
     } else if (b.dataset.colorsrc) saveSettings({ colorSource: b.dataset.colorsrc, calColors: {} });
     else if (b.dataset.marker) saveSettings({ marker: b.dataset.marker });
+    else if (b.dataset.labelToggle) {
+      const n = b.dataset.labelToggle, h = s.hiddenLabels || [];
+      saveSettings({ hiddenLabels: h.includes(n) ? h.filter(x => x !== n) : [...h, n] });
+    }
+    else if ('testReminder' in b.dataset) { sendTestReminder(b); return; }
     else if (b.dataset.remopt) {
       const m = Number(b.dataset.remopt);
       const list = s.reminderOptions.includes(m) ? s.reminderOptions.filter(x => x !== m) : [...s.reminderOptions, m].sort((a, c) => a - c);
@@ -429,6 +456,16 @@ export function openSettings({ onLogin } = {}) {
     if (k === 'gmailQuery') { saveSettings({ gmailQuery: e.target.value.trim() }); refresh(); }
     if (k === 'defaultList') saveSettings({ defaultList: e.target.value });
   });
+}
+
+async function sendTestReminder(btn) {
+  const calId = state.cals.find(c => c.primary)?.id;
+  const start = new Date(Date.now() + 2 * 60000); start.setSeconds(0, 0);
+  btn.disabled = true; btn.textContent = 'שולח…';
+  try {
+    await api().createEvent({ calId, title: '🔔 תזכורת לדוגמה', start, end: new Date(start.getTime() + 5 * 60000), allDay: false, location: '', description: 'נוצר מ״מה איתי היום?״ כדי לשמוע איך נשמעת תזכורת. האירוע יימחק לבד.', reminder: [1], snoozeFor: 'test' });
+    btn.textContent = `תגיע ב־${hm(new Date(start.getTime() - 60000))} ✓`;
+  } catch (e) { btn.textContent = 'לא הצליח'; console.error(e); }
 }
 
 export function applyTheme() {

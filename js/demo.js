@@ -23,7 +23,8 @@ let events = [
   { calId: 'work', title: 'מסירת אנימטיק ללקוח', start: at(1, 10), end: at(1, 11) },
   { calId: 'me', title: 'מספרה', start: at(1, 17, 30), end: at(1, 18, 15), location: 'דיזנגוף 150, תל אביב' },
 ].map(e => ({
-  id: uid(), allDay: false, birthday: false, location: '', description: '', meet: '', reminder: cals.find(c => c.id === e.calId).defaultReminders[0]?.minutes ?? null,
+  id: uid(), allDay: false, birthday: false, location: '', description: '', meet: '', snoozeFor: null,
+  reminders: cals.find(c => c.id === e.calId).defaultReminders.map(r => r.minutes), reminder: cals.find(c => c.id === e.calId).defaultReminders[0]?.minutes ?? null,
   reminderIsDefault: true, canEdit: e.calId !== 'hol', htmlLink: 'https://calendar.google.com/', ...e,
 }));
 
@@ -64,16 +65,20 @@ export const demo = {
     const ids = new Set(cs.map(c => c.id));
     return events.filter(e => ids.has(e.calId) && e.end > from && e.start < to).map(e => ({ ...e }));
   },
-  async setReminder(ev, minutes) {
+  async setReminders(ev, list) {
     const e = events.find(x => x.id === ev.id); if (!e) return;
-    if (minutes === 'default') { e.reminder = cals.find(c => c.id === e.calId).defaultReminders[0]?.minutes ?? null; e.reminderIsDefault = true; }
-    else { e.reminder = minutes; e.reminderIsDefault = false; }
+    if (list === 'default') { e.reminders = cals.find(c => c.id === e.calId).defaultReminders.map(r => r.minutes); e.reminderIsDefault = true; }
+    else { e.reminders = [...list]; e.reminderIsDefault = false; }
+    e.reminder = e.reminders.length ? Math.min(...e.reminders) : null;
   },
   async deleteEvent(ev) { events = events.filter(e => e.id !== ev.id); },
   async createEvent(o) {
     const cal = cals.find(c => c.id === o.calId);
-    events.push({ id: uid(), meet: '', canEdit: true, htmlLink: 'https://calendar.google.com/', reminderIsDefault: o.reminder === 'default',
-      ...o, reminder: o.reminder === 'default' ? cal.defaultReminders[0]?.minutes ?? null : o.reminder });
+    const list = o.reminder === 'default' ? cal.defaultReminders.map(r => r.minutes) : o.reminder == null ? [] : [].concat(o.reminder);
+    const ev = { id: uid(), meet: '', canEdit: true, htmlLink: 'https://calendar.google.com/', reminderIsDefault: o.reminder === 'default',
+      birthday: false, ...o, snoozeFor: o.snoozeFor || null, reminders: list, reminder: list.length ? Math.min(...list) : null };
+    events.push(ev);
+    return ev;
   },
   async taskLists() { return lists; },
   async tasks() { await wait(); return tasks.map(x => ({ ...x, subtasks: [] })); },

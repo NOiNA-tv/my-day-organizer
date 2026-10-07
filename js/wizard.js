@@ -5,11 +5,11 @@
 import { icon } from './icons.js';
 import {
   state, eventsOn, taskGroups, calById, calColor, toggleTask, deferTask, updateTask, archiveEmail, unarchiveEmail,
-  emailToTask, dropTask, allTaskRoots, setReminder, deleteEvent, trashEmail, userLabels,
+  emailToTask, dropTask, allTaskRoots, setReminder, deleteEvent, trashEmail, userLabels, snoozedUntil,
 } from './data.js';
 import { esc, hm, countdown, greeting, dayName, longDate, addDays, ymd, fromYmd, daysBetween, daysLeftLabel, startOfDay, haptic, reducedMotion, relDayLabel } from './util.js';
 import { wmo } from './extras.js';
-import { openDeferSheet, openTask, navLinks, linkify, reminderChips } from './sheets.js';
+import { openDeferSheet, openTask, navLinks, linkify, reminderChips, parseRem, deferOptions, applyDefer } from './sheets.js';
 import { openSheet, closeSheet, paintSheet } from './overlay.js';
 
 let W = null; // live wizard instance
@@ -35,11 +35,11 @@ function buildDeck(mode, extras) {
   const deck = [];
   if (mode === 'morning') {
     eventsOn(now).filter(e => !e.allDay && e.end > now).sort((a, b) => a.start - b.start).forEach(e => deck.push({ type: 'event', id: e.id }));
-    taskGroups(startOfDay(now)).dueNow.forEach(t => deck.push({ type: 'task', id: t.id }));
+    taskGroups(startOfDay(now)).dueNow.filter(t => !snoozedUntil(t.id)).forEach(t => deck.push({ type: 'task', id: t.id }));
     if (state.settings.gmailEnabled && state.settings.wizardEmails) state.emails.forEach(e => deck.push({ type: 'email', id: e.id }));
     if (state.settings.digestEnabled && extras.digest && !extras.digest.seen) deck.push({ type: 'digest', id: extras.digest.id });
   } else if (mode === 'evening') {
-    taskGroups(startOfDay(now)).dueNow.forEach(t => deck.push({ type: 'task', id: t.id }));
+    taskGroups(startOfDay(now)).dueNow.filter(t => !snoozedUntil(t.id)).forEach(t => deck.push({ type: 'task', id: t.id }));
     eventsOn(addDays(now, 1)).filter(e => !e.allDay).forEach(e => deck.push({ type: 'preview', id: e.id }));
   } else if (mode === 'mail') {
     state.emails.forEach(e => deck.push({ type: 'email', id: e.id }));
@@ -177,14 +177,20 @@ function paintDeck({ animate = true } = {}) {
   W.el.querySelectorAll('.wz-progress button').forEach((bt, k) => { bt.className = k < W.i ? 'past' : k === W.i ? 'cur' : ''; bt.setAttribute('aria-selected', k === W.i); });
   const u = W.el.querySelector('[data-w="undo"]'); if (u) u.disabled = !W.history.length;
   const top = deckEl.querySelector('.card.top');
-  if (top) attachDrag(top, item);
+  if (top) { markScroll(top); attachDrag(top, item); }
 }
 
 // refresh only the top card's content (no entrance animation) — e.g. after changing a reminder
 function repaintTop() {
   const item = W?.deck[W.i];
   const box = W?.el.querySelector('.card.top .card-in');
-  if (item && box) box.innerHTML = cardBody(item) + hint(item);
+  if (item && box) { const y = box.scrollTop; box.innerHTML = cardBody(item) + hint(item); box.scrollTop = y; markScroll(box.parentElement); }
+}
+
+// tall cards scroll vertically; then only sideways drags act on the card (the up-action stays on its button)
+function markScroll(card) {
+  const box = card.querySelector('.card-in');
+  card.classList.toggle('scrolls', box.scrollHeight > box.clientHeight + 2);
 }
 
 const actBtn = (dir, [act, label, ic], main = false) =>
@@ -214,9 +220,9 @@ function cardBody(item) {
       <h3 class="c-title">${esc(ev.title)}</h3>
       ${ev.location ? `<div class="c-line">${icon('pin')}<span>${esc(ev.location)}</span></div>
         <div class="c-links">
-          <a href="${nav.walk}" target="_blank" rel="noopener">${icon('walk')}ברגל</a>
-          <a href="${nav.transit}" target="_blank" rel="noopener">${icon('bus')}תחב״צ</a>
-          <a href="${nav.car}" target="_blank" rel="noopener">${icon('car')}Waze</a>
+          <a href="${nav.walk}" target="_blank" rel="noopener">${icon('walk', 'rtl-flip')}ברגל</a>
+          <a href="${nav.transit}" target="_blank" rel="noopener">${icon('bus', 'rtl-flip')}תחב״צ</a>
+          <a href="${nav.car}" target="_blank" rel="noopener">${icon('car', 'rtl-flip')}Waze</a>
         </div>` : ''}
       ${ev.meet ? `<div class="c-links"><a href="${esc(ev.meet)}" target="_blank" rel="noopener">${icon('video')}הצטרפות לשיחת וידאו</a></div>` : ''}
       ${ev.canEdit ? `<div class="c-sec"><div class="c-label">${icon('bell')}תזכורת</div>${reminderChips(ev)}</div>` : ''}
@@ -307,7 +313,7 @@ function onClick(e) {
   if (b.dataset.w === 'undo') return undo();
   if (b.dataset.jump != null) { jump(Number(b.dataset.jump)); return; }
   if (b.dataset.sub) { toggleTask(b.dataset.sub, { silent: true }); b.classList.toggle('on'); haptic(); return; }
-  if (b.dataset.rem) { setReminder(W.deck[W.i].id, b.dataset.rem === 'null' ? null : b.dataset.rem === 'default' ? 'default' : Number(b.dataset.rem)); repaintTop(); haptic(); return; }
+  if (b.dataset.rem) { setReminder(W.deck[W.i].id, parseRem(b.dataset.rem)); repaintTop(); haptic(); return; }
   if (b.dataset.editTask) { openTask(b.dataset.editTask); watchSheetThenRepaint(); return; }
   if ('cdel' in b.dataset) return removeCurrent();
   if (b.dataset.dir) fling(b.dataset.dir);
@@ -373,43 +379,49 @@ function removeCurrent() {
   }, 260);
 }
 
-// small sheet inside the card
-function cardPanel(card, html, onPick) {
+// small sheet inside the card; `kind` colours its frame (defer = orange, archive = gray)
+function cardPanel(card, html, onPick, kind = '') {
   if (card.querySelector('.c-defer')) return;
   const box = document.createElement('div');
-  box.className = 'c-defer';
+  box.className = `c-defer ${kind}`;
   box.innerHTML = html + `<button data-pick="cancel" class="ghost">ביטול</button>`;
+  card.classList.add('panel-open', kind);
   card.append(box);
   box.addEventListener('click', ev => {
     const b = ev.target.closest('[data-pick]'); if (!b) return;
     ev.stopPropagation();
     box.remove();
+    card.classList.remove('panel-open', kind);
     if (b.dataset.pick !== 'cancel') onPick(b);
   });
 }
 
 function deferPicker(item) {
   const card = W.el.querySelector('.card.top');
-  const t = startOfDay(new Date());
-  cardPanel(card, `<b>לדחות ל…</b>
-    <button data-pick="${ymd(addDays(t, 1))}" data-l="מחר">מחר <small>${dayName(addDays(t, 1))}</small></button>
-    <button data-pick="${ymd(addDays(t, 7))}" data-l="שבוע">בעוד שבוע <small>${addDays(t, 7).getDate()}/${addDays(t, 7).getMonth() + 1}</small></button>
-    <button data-pick="other">מועד אחר…</button>`, b => {
-    if (b.dataset.pick === 'other') {
-      const prevDue = state.tasks.find(x => x.id === item.id)?.due ?? null;
+  const opts = deferOptions();
+  cardPanel(card, `<b>${icon('snooze')}לדחות ל…</b>
+    <div class="c-pick-grid">${opts.map((o, k) => `<button data-pick="${k}" class="${o.key === 'other' ? 'wide' : ''}">${o.label}${o.hint ? ` <small>${o.hint}</small>` : ''}</button>`).join('')}</div>`, b => {
+    const o = opts[Number(b.dataset.pick)];
+    const prevDue = state.tasks.find(x => x.id === item.id)?.due ?? null;
+    if (o.key === 'other') {
       openDeferSheet(item.id, { onDone: () => { throwCard(card, 'left', 'defer'); setTimeout(() => record(item, () => updateTask(item.id, { due: prevDue }), 'deferred'), 260); } });
       return;
     }
-    const prev = deferTask(item.id, b.dataset.pick, b.dataset.l, { silent: true });
+    const res = applyDefer(item.id, o, { silent: true });
     throwCard(card, 'left', 'defer');
-    setTimeout(() => record(item, () => updateTask(item.id, { due: prev }), 'deferred'), 260);
-  });
+    setTimeout(async () => {
+      const undo = o.snooze ? await res : () => updateTask(item.id, { due: prevDue });
+      record(item, undo, 'deferred');
+    }, 260);
+  }, 'defer');
 }
 
 function labelPicker(item) {
   const card = W.el.querySelector('.card.top');
-  cardPanel(card, `<b>למייל אין תווית. לשייך לפני הארכיון?</b>
-    <div class="c-pick-labels">${state.labels.map(l => `<button data-pick="${esc(l.id)}" style="--lc:${l.color || 'var(--ink-3)'}">${esc(l.name)}</button>`).join('')}</div>
+  const hidden = new Set(state.settings.hiddenLabels || []);
+  const labels = state.labels.filter(l => !hidden.has(l.name));
+  cardPanel(card, `<b>${icon('archive')}למייל אין תווית. לשייך לפני הארכיון?</b>
+    <div class="c-pick-labels">${labels.map(l => `<button data-pick="${esc(l.id)}" style="--lc:${l.color || 'var(--ink-3)'}">${esc(l.name)}</button>`).join('')}</div>
     <button data-pick="none">ארכיון בלי תווית</button>`, b => {
     const label = b.dataset.pick === 'none' ? null : b.dataset.pick;
     const e = state.emails.find(x => x.id === item.id);
@@ -418,7 +430,7 @@ function labelPicker(item) {
       archiveEmail(item.id, { silent: true, label });
       record(item, () => e && unarchiveEmail(e), 'archived');
     }, 260);
-  });
+  }, 'archive');
 }
 
 // Drawer to shape the task before creating it from an email
@@ -522,7 +534,7 @@ function attachDrag(card, item) {
   card.addEventListener('pointermove', e => {
     if (!dragging || e.pointerId !== pid) return;
     dx = e.clientX - sx; dy = e.clientY - sy;
-    const up = dy < 0 && Math.abs(dy) > Math.abs(dx) && acts.up;
+    const up = dy < 0 && Math.abs(dy) > Math.abs(dx) && acts.up && !card.classList.contains('scrolls');
     const ty = up ? dy : dy * .25;
     card.style.transform = `translate(${dx}px, ${ty}px) rotate(${dx / 18}deg)`;
     const dir = up ? 'up' : dx > 0 ? 'right' : 'left';
@@ -536,7 +548,7 @@ function attachDrag(card, item) {
     card.classList.remove('dragging');
     const dt = performance.now() - t0;
     const vx = dx / dt, vy = dy / dt;
-    const up = dy < 0 && Math.abs(dy) > Math.abs(dx);
+    const up = dy < 0 && Math.abs(dy) > Math.abs(dx) && !card.classList.contains('scrolls');
     let dir = null;
     if (up && (dy < -110 || vy < -.6)) dir = 'up';
     else if (!up && (Math.abs(dx) > 110 || Math.abs(vx) > .6)) dir = dx > 0 ? 'right' : 'left';

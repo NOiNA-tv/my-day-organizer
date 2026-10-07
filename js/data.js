@@ -9,14 +9,19 @@ export const APP_PALETTE = ['#3cc4dc', '#5b8def', '#8f6ee8', '#d16bd4', '#ec5f8b
 const DEFAULT_SETTINGS = {
   theme: 'system', marker: 'bar', colorSource: 'google', calColors: {}, hiddenCals: [],
   gmailEnabled: true, gmailQuery: 'in:inbox is:unread category:primary newer_than:7d',
-  digestEnabled: true, defaultList: null, defaultCal: null, wizardEmails: true, reminderOptions: [10, 30, 60],
+  digestEnabled: true, defaultList: null, defaultCal: null, wizardEmails: true, reminderOptions: [2880, 1440, 60, 15, 5], hiddenLabels: ['עבודה/נטקראפט', 'עבודה/פרומותאוס', 'עבודה/קידו', 'עבודה/וימאו'], v: 3,
 };
 
+function migrate(s) {
+  if ((s.v || 0) < 3) { s.reminderOptions = DEFAULT_SETTINGS.reminderOptions; s.hiddenLabels = DEFAULT_SETTINGS.hiddenLabels; s.v = 3; }
+  return s;
+}
+
 export const state = {
-  settings: { ...DEFAULT_SETTINGS, ...store.get('settings', {}) },
+  settings: migrate({ ...DEFAULT_SETTINGS, ...store.get('settings', {}) }),
   day: startOfDay(new Date()),
   cals: [], lists: [], events: [], tasks: [], emails: [], labels: [],
-  profile: null, loading: true, error: null, mode: 'demo', lastSync: null,
+  snoozes: store.get('snoozes', {}), profile: null, loading: true, error: null, mode: 'demo', lastSync: null,
 };
 
 const subs = new Set();
@@ -100,7 +105,7 @@ export function refresh() {
       const [cals, lists, profile] = await Promise.all([a.calendars(), a.taskLists(), state.profile && state.mode === 'live' ? state.profile : a.profile()]);
       state.cals = cals; state.lists = lists; state.profile = profile;
       if (profile?.email && a.live) store.set('email', profile.email);
-      const from = addDays(state.day, -1), to = addDays(state.day, 3);
+      const from = addDays(state.day, -1), to = addDays(state.day, 9);
       if (state.settings.gmailEnabled) a.labels().then(l => { state.labels = l; emit(); }).catch(e => console.warn('labels', e));
       const [events, tasks, emails] = await Promise.all([
         a.events(visibleCals(), from, to),
@@ -108,6 +113,7 @@ export function refresh() {
         state.settings.gmailEnabled ? a.emails(state.settings.gmailQuery).catch(e => { if (e instanceof AuthError) throw e; console.warn(e); return []; }) : [],
       ]);
       state.events = events; state.tasks = tasks; state.emails = emails; state.range = { from, to };
+      cleanupSnoozes(a);
       state.loading = false; state.lastSync = new Date();
       if (a.live) store.set('cache', { cals, lists, profile, events, tasks, emails });
     } catch (err) {
@@ -125,7 +131,7 @@ export function setDay(d) {
   emit();
   // events are fetched for day-1…day+3; refetch when the selected day (and its next day) falls outside
   const r = state.range;
-  if (!r || state.day < r.from || addDays(state.day, 2) > r.to) refresh();
+  if (!r || state.day < r.from || addDays(state.day, 8) > r.to) refresh();
 }
 
 // ---------- derived ----------
@@ -135,7 +141,7 @@ export function eventsOn(day) {
   const s = startOfDay(day), e = addDays(s, 1);
   const hidden = new Set(state.settings.hiddenCals);
   return state.events
-    .filter(ev => !hidden.has(ev.calId) && ev.start < e && ev.end > s)
+    .filter(ev => !hidden.has(ev.calId) && !ev.snoozeFor && ev.start < e && ev.end > s)
     .sort((a, b) => (b.allDay - a.allDay) || (a.start - b.start));
 }
 
@@ -176,7 +182,7 @@ export function progress() {
 
 export function nextUp() {
   const now = new Date();
-  const ev = state.events.filter(e => !e.allDay && e.end > now && !state.settings.hiddenCals.includes(e.calId))
+  const ev = state.events.filter(e => !e.allDay && !e.snoozeFor && e.end > now && !state.settings.hiddenCals.includes(e.calId))
     .sort((a, b) => a.start - b.start)[0];
   return ev || null;
 }
@@ -194,6 +200,37 @@ export function toggleTask(id, { silent = false } = {}) {
   if (!silent && to === 'completed' && !t.parent) {
     toast(`סומן כבוצע: ${t.title}`, { undo: () => { Object.assign(t, prev); emit(); api().patchTask(t, { status: prev.status }).catch(fail); } });
   }
+}
+
+// ---------- snooze for an hour or two ----------
+// Google Tasks has no time of day, so a short snooze lives here (the task is hidden until then)
+// plus a tiny calendar event at that time, so the phone rings when it's back.
+export const snoozedUntil = id => { const t = state.snoozes[id]; return t && new Date(t) > new Date() ? new Date(t) : null; };
+
+export async function snoozeTask(id, minutes, { silent = false } = {}) {
+  const t = findTask(id); if (!t) return;
+  const until = new Date(Date.now() + minutes * 60000);
+  state.snoozes[id] = until.toISOString(); store.set('snoozes', state.snoozes); emit();
+  const calId = state.cals.find(c => c.primary)?.id;
+  let evId = null;
+  try {
+    const ev = await api().createEvent({ calId, title: `⏰ ${t.title}`, start: until, end: new Date(until.getTime() + 10 * 60000), allDay: false, location: '', description: 'תזכורת ממה איתי היום? — המשימה חוזרת לרשימה עכשיו.', reminder: [0], snoozeFor: id });
+    evId = ev?.id || null;
+  } catch (e) { console.warn('snooze reminder', e); }
+  const undo = () => {
+    delete state.snoozes[id]; store.set('snoozes', state.snoozes); emit();
+    if (evId) api().deleteEvent({ id: evId, calId }).catch(() => {});
+  };
+  if (!silent) toast(`יחזור ב־${String(until.getHours()).padStart(2, '0')}:${String(until.getMinutes()).padStart(2, '0')}`, { undo });
+  return undo;
+}
+
+function cleanupSnoozes(a) {
+  const now = new Date();
+  for (const [id, t] of Object.entries(state.snoozes)) if (new Date(t) <= now) delete state.snoozes[id];
+  store.set('snoozes', state.snoozes);
+  // remove reminder events that already rang
+  state.events.filter(e => e.snoozeFor && e.end < new Date(now - 30 * 60000)).forEach(e => a.deleteEvent(e).catch(() => {}));
 }
 
 export function deferTask(id, dueYmd, label, { silent = false } = {}) {
@@ -233,14 +270,22 @@ export function deleteTask(id) {
   });
 }
 
-export function setReminder(evId, minutes) {
+// value: 'default' | 'none' | minutes (toggles that time on/off; several can be on together)
+export function setReminder(evId, value) {
   const ev = state.events.find(e => e.id === evId); if (!ev) return;
-  if (minutes === 'default') {
+  let list;
+  if (value === 'default') {
     ev.reminderIsDefault = true;
-    ev.reminder = calById(ev.calId)?.defaultReminders?.find(r => r.method === 'popup')?.minutes ?? null;
-  } else { ev.reminder = minutes; ev.reminderIsDefault = false; }
+    ev.reminders = (calById(ev.calId)?.defaultReminders || []).filter(r => r.method === 'popup').map(r => r.minutes);
+    list = 'default';
+  } else {
+    const cur = ev.reminderIsDefault ? [] : [...(ev.reminders || [])];
+    list = value === 'none' ? [] : cur.includes(value) ? cur.filter(m => m !== value) : [...cur, value].slice(-5);
+    ev.reminders = list.sort((a, b) => b - a); ev.reminderIsDefault = false;
+  }
+  ev.reminder = ev.reminders.length ? Math.min(...ev.reminders) : null;
   emit();
-  api().setReminder(ev, minutes).catch(fail);
+  api().setReminders(ev, list).catch(fail);
 }
 
 export function deleteEvent(evId, { silent = false } = {}) {

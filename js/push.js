@@ -6,21 +6,38 @@ import { paintSheet } from './overlay.js';
 
 const supported = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
 
+// times + which devices are connected live in the repo (push/*.json); the Action reads them
+export const pushInfo = { schedule: null, endpoints: [] };
+export async function loadPushInfo() {
+  try {
+    const [sch, subs] = await Promise.all([fetch('push/schedule.json', { cache: 'no-cache' }).then(r => r.json()), fetch('push/subscriptions.json', { cache: 'no-cache' }).then(r => r.json())]);
+    pushInfo.schedule = sch; pushInfo.endpoints = subs.map(x => x.endpoint);
+  } catch { /* offline */ }
+}
+const EDIT_TIMES = 'https://github.com/NOiNA-tv/my-day-organizer/edit/main/push/schedule.json';
+const RUN_NOW = 'https://github.com/NOiNA-tv/my-day-organizer/actions/workflows/daily-push.yml';
+
 export function pushPanel() {
   if (!supported) return `<p class="sub">הדפדפן הזה לא תומך בהתראות. כדאי להתקין את האפליקציה למסך הבית ולנסות שוב.</p>`;
-  if (!VAPID_PUBLIC_KEY) return `<p class="sub">עוד לא הופעל. זה יעבוד אחרי שהאפליקציה תעלה לאוויר.</p>`;
+  if (!VAPID_PUBLIC_KEY) return `<p class="sub">עוד לא הופעל.</p>`;
   const sub = store.get('pushSub');
   const perm = Notification.permission;
+  const sch = pushInfo.schedule;
+  const times = `
+    <div class="set-row"><div class="grow"><b>☀️ ${sch?.morning || '07:30'} · 🌙 ${sch?.evening || '20:30'}</b><small>שעות התזכורת לאשף הבוקר ולסיכום הערב</small></div>
+      <a class="btn sm" href="${EDIT_TIMES}" target="_blank" rel="noopener">${icon('pencil')}שינוי שעות</a></div>
+    <p class="small-print" style="margin-top:4px">השינוי נעשה בקובץ קטן בגיטהאב: מחליפים את השעות ולוחצים Commit changes. ההתראה יכולה להגיע עד כרבע שעה אחרי השעה שנקבעה.</p>`;
   if (perm === 'denied') return `<p class="sub">ההתראות חסומות. אפשר לשחרר בהגדרות האתר בדפדפן.</p>`;
-  if (!sub) return `
-    <div class="set-row"><div class="grow"><b>☀️ 07:30 ו־🌙 20:30</b><small>תזכורת לפתוח את אשף הבוקר ואת סיכום הערב</small></div>
+  if (!sub) return `${times}
+    <div class="set-row"><div class="grow"><b>המכשיר הזה עוד לא מחובר</b><small>הפעלה ואז שליחת הקוד ל־Claude</small></div>
     <button class="btn sm primary" data-push="on">${icon('bellRing')}הפעלה</button></div>`;
-  return `
-    <div class="set-row"><div class="grow"><b>ההתראות פעילות במכשיר הזה</b><small>כדי שיגיעו גם כשהאפליקציה סגורה, צריך לחבר את המכשיר פעם אחת: להעתיק את הקוד ולשלוח אותו ל־Claude.</small></div></div>
-    <code class="copy">${esc(JSON.stringify(sub))}</code>
+  const connected = pushInfo.endpoints.includes(sub.endpoint);
+  return `${times}
+    <div class="set-row"><div class="grow"><b>${connected ? 'המכשיר מחובר ✓' : 'ממתין לחיבור'}</b><small>${connected ? 'התזכורות יגיעו גם כשהאפליקציה סגורה.' : 'צריך להעתיק את הקוד ולשלוח אותו ל־Claude.'}</small></div></div>
+    ${connected ? '' : `<code class="copy">${esc(JSON.stringify(sub))}</code>`}
     <div class="actions" style="margin-top:10px">
-      <button class="btn sm" data-push="copy">העתקת הקוד</button>
-      <button class="btn sm" data-push="test">${icon('bell')}התראת ניסיון</button>
+      ${connected ? `<a class="btn sm" href="${RUN_NOW}" target="_blank" rel="noopener">${icon('bell')}שליחה עכשיו (Run workflow)</a>` : `<button class="btn sm" data-push="copy">העתקת הקוד</button>`}
+      <button class="btn sm" data-push="test">${icon('bell')}איך זה ייראה</button>
       <button class="btn sm danger" data-push="off">כיבוי</button>
     </div>`;
 }

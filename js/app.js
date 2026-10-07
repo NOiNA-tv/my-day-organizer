@@ -6,6 +6,7 @@ import { mountSnackbar, sheetOpen } from './overlay.js';
 import { applyTheme } from './sheets.js';
 import { openWizard, wizardOpen } from './wizard.js';
 import { weather, latestDigest, markDigestSeen } from './extras.js';
+import { loadPushInfo } from './push.js';
 
 const back = auth.handleRedirect();
 const params = new URLSearchParams(location.search);
@@ -41,7 +42,7 @@ async function boot() {
   render();
   document.querySelector('.splash')?.remove();
 
-  await Promise.all([init(), loadWeather(false), latestDigest().then(d => { view.digest = d; })]);
+  await Promise.all([init(), loadWeather(false), latestDigest().then(d => { view.digest = d; }), loadPushInfo()]);
   render();
 
   if (back?.error && back.error !== 'state_mismatch' && auth.everConnected) {

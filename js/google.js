@@ -30,17 +30,14 @@ function normEvent(e, cal) {
   const allDay = !!e.start?.date;
   const start = allDay ? fromYmd(e.start.date) : new Date(e.start.dateTime);
   const end = allDay ? fromYmd(e.end.date) : new Date(e.end?.dateTime || e.start.dateTime);
-  let reminder = null, reminderIsDefault = false;
-  if (e.reminders?.useDefault) {
-    reminderIsDefault = true;
-    reminder = cal.defaultReminders?.find(r => r.method === 'popup')?.minutes ?? null;
-  } else {
-    reminder = e.reminders?.overrides?.find(r => r.method === 'popup')?.minutes ?? null;
-  }
+  const reminderIsDefault = !!e.reminders?.useDefault;
+  const src = reminderIsDefault ? cal.defaultReminders : e.reminders?.overrides;
+  const reminders = [...new Set((src || []).filter(r => r.method === 'popup').map(r => r.minutes))].sort((a, b) => b - a);
+  const reminder = reminders.length ? Math.min(...reminders) : null;
   return {
     id: e.id, calId: cal.id, title: e.summary || '(ללא כותרת)', start, end, allDay,
     location: e.location || '', description: e.description || '', htmlLink: e.htmlLink,
-    reminder, reminderIsDefault, canEdit: ['owner', 'writer'].includes(cal.accessRole),
+    reminder, reminders, reminderIsDefault, snoozeFor: e.extendedProperties?.private?.mdSnooze || null, canEdit: ['owner', 'writer'].includes(cal.accessRole),
     birthday: e.eventType === 'birthday' || /#contacts@|#birthdays/.test(cal.id) || /יום הולדת|יום־הולדת|birthday|🎂/i.test(e.summary || ''),
     meet: e.hangoutLink || e.conferenceData?.entryPoints?.find(p => p.entryPointType === 'video')?.uri || '',
   };
@@ -84,8 +81,9 @@ export const google = {
     return lists.flat();
   },
 
-  async setReminder(ev, minutes) {
-    const body = { reminders: minutes === 'default' ? { useDefault: true } : { useDefault: false, overrides: minutes == null ? [] : [{ method: 'popup', minutes }] } };
+  // list: array of minutes (max 5) or 'default'
+  async setReminders(ev, list) {
+    const body = { reminders: list === 'default' ? { useDefault: true } : { useDefault: false, overrides: list.slice(0, 5).map(minutes => ({ method: 'popup', minutes })) } };
     await g(`${CAL}/calendars/${encodeURIComponent(ev.calId)}/events/${ev.id}`, { method: 'PATCH', body: JSON.stringify(body) });
   },
 
@@ -93,14 +91,18 @@ export const google = {
     await g(`${CAL}/calendars/${encodeURIComponent(ev.calId)}/events/${ev.id}`, { method: 'DELETE' });
   },
 
-  async createEvent({ calId, title, start, end, allDay, location, description, reminder }) {
+  async createEvent({ calId, title, start, end, allDay, location, description, reminder, snoozeFor }) {
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
     const body = {
       summary: title, location, description,
       start: allDay ? { date: ymd(start) } : { dateTime: start.toISOString(), timeZone: tz },
       end: allDay ? { date: ymd(end) } : { dateTime: end.toISOString(), timeZone: tz },
     };
-    if (reminder !== 'default') body.reminders = { useDefault: false, overrides: reminder == null ? [] : [{ method: 'popup', minutes: reminder }] };
+    if (reminder !== 'default') {
+      const list = reminder == null ? [] : Array.isArray(reminder) ? reminder : [reminder];
+      body.reminders = { useDefault: false, overrides: list.map(minutes => ({ method: 'popup', minutes })) };
+    }
+    if (snoozeFor) { body.extendedProperties = { private: { mdSnooze: snoozeFor } }; body.transparency = 'transparent'; }
     return g(`${CAL}/calendars/${encodeURIComponent(calId)}/events`, { method: 'POST', body: JSON.stringify(body) });
   },
 
