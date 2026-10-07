@@ -757,3 +757,13 @@ select.inp { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.
 .hero.bare { padding-bottom: 32px; }
 .dg-view iframe { transition: opacity .2s ease; }
 .dg-close { background: var(--brand); color: #06343e; box-shadow: 0 8px 24px rgba(6, 52, 62, .35); }
+.dg-view { inset: auto; overflow: hidden; }
+.dg-view .dg-close { position: fixed; }
+.task.combo .t-time { position: relative; display: grid; place-items: center end; }
+.t-time input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; border: 0; padding: 0; margin: 0; font-size: 16px; cursor: pointer; }
+/* list content sits higher in the sheet */
+.body { padding-top: 2px; }
+.body > .sec:first-of-type, .body > .banner + .sec { margin-top: 14px; }
+.body > .banner:first-child { margin-top: 14px; }
+.dg-view .dg-close { opacity: 0; transition: opacity .25s ease; }
+.dg-view.ready .dg-close { opacity: 1; }

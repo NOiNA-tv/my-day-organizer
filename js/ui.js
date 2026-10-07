@@ -93,29 +93,30 @@ function openDigest(card) {
     <button class="dg-close" aria-label="סגירה">${icon('x')}</button>`;
   document.body.append(ov);
   document.documentElement.classList.add('wiz-open');
-  const full = { top: 0, left: 0, width: innerWidth, height: innerHeight };
-  const from = { top: r.top, left: r.left, width: r.width, height: r.height };
-  const frames = (a, b) => [
-    { clipPath: `inset(${a.top}px ${innerWidth - a.left - a.width}px ${innerHeight - a.top - a.height}px ${a.left}px round 18px)` },
-    { clipPath: `inset(${b.top}px ${innerWidth - b.left - b.width}px ${innerHeight - b.top - b.height}px ${b.left}px round 0px)` },
-  ];
+  const full = { top: 0, left: 0, width: innerWidth, height: innerHeight, radius: 0 };
+  const from = { top: r.top, left: r.left, width: r.width, height: r.height, radius: 18 };
+  const box = g => ({ top: g.top + 'px', left: g.left + 'px', width: g.width + 'px', height: g.height + 'px', borderRadius: g.radius + 'px' });
+  // a rounded rectangle the shape of the card grows to fill the screen (corners straighten only at the very end)
+  const frames = (a, b) => [box(a), { ...box({ ...b, radius: Math.max(a.radius, b.radius) * .6 }), offset: .85 }, box(b)];
   const iframe = ov.querySelector('iframe');
   let loaded = false, grown = false;
   const reveal = () => { if (loaded && grown) ov.classList.add('ready'); };
   iframe.addEventListener('load', () => { loaded = true; reveal(); });
   setTimeout(() => { loaded = true; reveal(); }, 2500);
-  const anim = reducedMotion() ? null : ov.animate(frames(from, full), { duration: 520, easing: 'cubic-bezier(.3, 0, .1, 1)' });
+  Object.assign(ov.style, box(full));
+  const anim = reducedMotion() ? null : ov.animate(frames(from, full), { duration: 620, easing: 'cubic-bezier(.5, 0, .2, 1)' });
   (anim ? anim.finished : Promise.resolve()).then(() => { grown = true; reveal(); });
   history.pushState({ digest: true }, '');
   const close = (fromPop = false) => {
     removeEventListener('popstate', onPop);
     if (!fromPop && history.state?.digest) history.back();
     ov.classList.remove('ready');
-    const rr = card.isConnected ? card.getBoundingClientRect() : from;
+    const cr = card.isConnected ? card.getBoundingClientRect() : from;
+    const rr = { top: cr.top, left: cr.left, width: cr.width, height: cr.height, radius: 18 };
     const done = () => { ov.remove(); document.documentElement.classList.remove('wiz-open'); };
     if (reducedMotion()) return done();
     // fade the page out first, then ease the panel back into the card (gentle deceleration, no snap)
-    ov.animate(frames(full, { top: rr.top, left: rr.left, width: rr.width, height: rr.height }), { duration: 560, delay: 120, easing: 'cubic-bezier(.32, .72, .24, 1)', fill: 'forwards' }).finished.then(done, done);
+    ov.animate([box(full), { ...box({ ...full, radius: 10 }), offset: .15 }, box(rr)], { duration: 560, delay: 120, easing: 'cubic-bezier(.32, .72, .24, 1)', fill: 'forwards' }).finished.then(done, done);
   };
   const onPop = () => close(true);
   addEventListener('popstate', onPop);
@@ -256,7 +257,7 @@ function comboTaskRow(t, time) {
   const past = time && time < new Date();
   return `
     <div class="task combo ${time ? '' : 'untimed'} ${past ? 'past' : ''}" data-task="${t.id}" data-fk="t${t.id}" data-slot="task" ${time ? `data-time="${time.toISOString()}"` : ''}>
-      ${time ? `<button class="t-time" data-ttime="${t.id}" aria-label="שעת תזכורת ${hm(time)}, לשינוי">${hm(time)}</button>` : ''}
+      ${time ? `<label class="t-time"><span>${hm(time)}</span><input type="time" data-ttime="${t.id}" value="${hm(time)}" aria-label="שעת תזכורת ${hm(time)}, לשינוי"></label>` : ''}
       <button class="check" data-act="toggle" data-id="${t.id}" aria-label="סימון כבוצע: ${esc(t.title)}"><span>${icon('check')}</span></button>
       <button class="task-main" data-act="task" data-id="${t.id}">
         <div class="task-title">${esc(t.title)}</div>
@@ -573,9 +574,16 @@ export function bindMain() {
   document.addEventListener('pointerdown', e => { if (!e.target.closest('.sheet, .wizard')) armLongPress(e); });
   document.addEventListener('click', e => { if (swallowClick) { e.stopPropagation(); e.preventDefault(); } }, true);
   document.addEventListener('contextmenu', e => { if (e.target.closest('.task.combo')) e.preventDefault(); });
-  document.addEventListener('click', e => {
-    const t = e.target.closest('[data-ttime]');
-    if (t) { e.stopPropagation(); pickTime(t.dataset.ttime, t); }
+  // the time on a task is a real (invisible) time input over the label: a tap opens the phone's picker
+  document.addEventListener('change', e => {
+    const t = e.target.closest?.('input[data-ttime]');
+    if (!t || !t.value) return;
+    const id = t.dataset.ttime;
+    const [h, m] = t.value.split(':').map(Number);
+    const d = new Date(state.day); d.setHours(h, m, 0, 0);
+    captureFlip();
+    state.tieOrder[id] = Date.now(); saveOrder();
+    setTaskReminder(id, d, { quiet: false });
   });
   document.addEventListener('click', e => {
     const b = e.target.closest('[data-act]');
