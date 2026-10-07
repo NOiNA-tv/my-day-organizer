@@ -628,7 +628,7 @@ export function bindMain() {
       case 'add-event': openAdd({ kind: 'event' }); break;
       case 'settings': openSettings({ onLogin: handlers.login }); break;
       case 'refresh': refresh(); handlers.weather?.(true); break;
-      case 'today': view.slide = state.day < new Date() ? 'in-left' : 'in-right'; markSheet(); setDay(new Date()); setTimeout(() => { view.slide = ''; }, 400); break;
+      case 'today': changeDay(new Date(), state.day < new Date() ? 1 : -1); break;
       case 'toggle-done': view.openDone = !view.openDone; render(); break;
       case 'ahead': view.aheadTab = id; render(); break;
       case 'add-menu': openAdd({ kind: 'task' }); break;
@@ -671,8 +671,9 @@ export function bindMain() {
   document.addEventListener('touchend', e => {
     if (x0 == null) return;
     const dx = e.changedTouches[0].clientX - x0, dy = e.changedTouches[0].clientY - y0;
-    x0 = null; hideHint();
-    if (horiz && Math.abs(dx) >= TH && Math.abs(dx) > Math.abs(dy) * 1.4) goDay(dx > 0 ? 1 : -1);
+    x0 = null;
+    if (horiz && Math.abs(dx) >= TH && Math.abs(dx) > Math.abs(dy) * 1.4) { hintEl.className = 'swipe-hint'; goDay(dx > 0 ? 1 : -1); }
+    else hideHint();
   });
   document.addEventListener('touchcancel', () => { x0 = null; hideHint(); });
   document.addEventListener('keydown', e => {
@@ -683,11 +684,30 @@ export function bindMain() {
 }
 
 export function goDay(n) {
-  view.slide = n > 0 ? 'in-left' : 'in-right';
-  markSheet();
-  setDay(n === 0 ? new Date() : addDays(state.day, n));
-  clearTimeout(goDay.t);
-  goDay.t = setTimeout(() => { view.slide = ''; }, 400);
+  changeDay(n === 0 ? new Date() : addDays(state.day, n), n >= 0 ? 1 : -1);
+}
+
+// old content drifts on in the swipe direction and fades, then the new day slides in from the other side
+function changeDay(target, dir) {
+  if (changeDay.busy) return;
+  const go = () => {
+    changeDay.busy = false;
+    view.slide = dir > 0 ? 'in-left' : 'in-right';
+    markSheet();
+    setDay(target);
+    clearTimeout(changeDay.t);
+    changeDay.t = setTimeout(() => { view.slide = ''; }, 420);
+  };
+  const els = [...document.querySelectorAll('.body > *, .day-name, .date-text, .hero > .next, .hero > .dg-card')];
+  if (reducedMotion() || !els.length) return go();
+  changeDay.busy = true;
+  const OUT = 200;
+  els.forEach(el => {
+    const from = el.style.transform || 'none'; // continue from wherever the finger left it
+    el.animate([{ transform: from, opacity: 1 }, { transform: `translateX(${dir * 56}px)`, opacity: 0 }],
+      { duration: OUT, easing: 'cubic-bezier(.4, 0, .9, .6)', fill: 'forwards' });
+  });
+  setTimeout(go, OUT - 20);
 }
 
 // the sheet stays put while the day changes; if the new day has a widget (or loses one) it glides to its new height

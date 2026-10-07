@@ -815,3 +815,9 @@ select.inp { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.
 .body > * { transition: transform .2s var(--ease); }
 .hero.sliding > .next, .hero.sliding > .dg-card { animation: widget-in .38s var(--ease-emph); }
 @keyframes widget-in { from { opacity: 0; transform: translateY(8px) scale(.98); } }
+
+/* new day eases in a touch softer, so out + in read as one glide */
+.day-row.in-left .day-name, .day-row.in-left .date-text, .body.in-left > * { animation: day-in-l .38s cubic-bezier(.15, .6, .25, 1); }
+.day-row.in-right .day-name, .day-row.in-right .date-text, .body.in-right > * { animation: day-in-r .38s cubic-bezier(.15, .6, .25, 1); }
+@keyframes day-in-l { from { opacity: 0; transform: translateX(-44px); } }
+@keyframes day-in-r { from { opacity: 0; transform: translateX(44px); } }
