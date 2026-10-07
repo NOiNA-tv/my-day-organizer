@@ -75,9 +75,13 @@ export async function digestIssue(id) {
     const top = (issue.items || []).filter(i => i.top).sort((a, b) => a.top - b.top).slice(0, 5);
     // cover: the most-mentioned of the top five that has a picture
     const score = i => (i.mentions || []).reduce((n, m) => n + (m.count || 1), 0);
-    const cover = [...top].filter(i => i.image).sort((a, b) => score(b) - score(a) || a.top - b.top)[0]?.image || '';
+    const coverItem = [...top].filter(i => i.image).sort((a, b) => score(b) - score(a) || a.top - b.top)[0];
+    const cover = coverItem?.image || '';
+    // teaser: the headline behind the cover picture (or the #1 story)
+    const lead = coverItem || top[0];
+    const teaser = lead ? (lead.title?.he || lead.title?.en || '') : '';
     return {
-      id, cover, label: meta.label, intro: issue.intro?.he || issue.intro?.en || '',
+      id, cover, teaser, more: Math.max(0, (issue.stats?.kept || (issue.items || []).length) - 1), label: meta.label, intro: issue.intro?.he || issue.intro?.en || '',
       stats: issue.stats, url: `${DIGEST_URL}?issue=${id}`, top: top.map(i => ({ title: i.title?.he || i.title?.en, image: i.image })),
       seen: (store.get('digestSeenAll') || []).includes(id) || store.get('digestSeen') === id,
     };
