@@ -41,6 +41,7 @@ function normEvent(e, cal) {
     id: e.id, calId: cal.id, title: e.summary || '(ללא כותרת)', start, end, allDay,
     location: e.location || '', description: e.description || '', htmlLink: e.htmlLink,
     reminder, reminderIsDefault, canEdit: ['owner', 'writer'].includes(cal.accessRole),
+    birthday: e.eventType === 'birthday' || /#contacts@|#birthdays/.test(cal.id) || /יום הולדת|יום־הולדת|birthday|🎂/i.test(e.summary || ''),
     meet: e.hangoutLink || e.conferenceData?.entryPoints?.find(p => p.entryPointType === 'video')?.uri || '',
   };
 }
@@ -50,6 +51,7 @@ function normTask(t, list) {
     id: t.id, listId: list.id, listTitle: list.title, title: t.title || '', notes: t.notes || '',
     due: t.due ? t.due.slice(0, 10) : null, status: t.status, completed: t.completed || null,
     parent: t.parent || null, position: t.position, webLink: t.webViewLink || 'https://tasks.google.com/',
+    links: (t.links || []).map(l => ({ type: l.type, description: l.description || '', link: l.link })), updated: t.updated,
     subtasks: [],
   };
 }
@@ -83,7 +85,7 @@ export const google = {
   },
 
   async setReminder(ev, minutes) {
-    const body = { reminders: { useDefault: false, overrides: minutes == null ? [] : [{ method: 'popup', minutes }] } };
+    const body = { reminders: minutes === 'default' ? { useDefault: true } : { useDefault: false, overrides: minutes == null ? [] : [{ method: 'popup', minutes }] } };
     await g(`${CAL}/calendars/${encodeURIComponent(ev.calId)}/events/${ev.id}`, { method: 'PATCH', body: JSON.stringify(body) });
   },
 
@@ -155,11 +157,20 @@ export const google = {
         id: m.id, threadId: m.threadId, subject: h('subject') || '(ללא נושא)',
         from: from.replace(/<.*>/, '').replace(/"/g, '').trim() || from, fromEmail: (from.match(/<(.+)>/) || [, from])[1],
         snippet: decodeEntities(m.snippet || ''), date: new Date(Number(m.internalDate)),
-        unread: m.labelIds?.includes('UNREAD'), starred: m.labelIds?.includes('STARRED'),
+        unread: m.labelIds?.includes('UNREAD'), starred: m.labelIds?.includes('STARRED'), labelIds: m.labelIds || [],
         link: `https://mail.google.com/mail/u/0/#all/${m.threadId}`,
       };
     });
   },
+
+  async labels() {
+    const r = await g(`${GMAIL}/labels`);
+    return (r.labels || []).filter(l => l.type === 'user').map(l => ({ id: l.id, name: l.name, color: l.color?.backgroundColor || null }))
+      .sort((a, b) => a.name.localeCompare(b.name, 'he'));
+  },
+
+  async trashEmail(e) { await g(`${GMAIL}/messages/${e.id}/trash`, { method: 'POST' }); },
+  async untrashEmail(e) { await g(`${GMAIL}/messages/${e.id}/untrash`, { method: 'POST' }); },
 
   async modifyEmail(e, { add = [], remove = [] }) {
     await g(`${GMAIL}/messages/${e.id}/modify`, { method: 'POST', body: JSON.stringify({ addLabelIds: add, removeLabelIds: remove }) });

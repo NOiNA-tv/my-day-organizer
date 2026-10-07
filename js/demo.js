@@ -15,21 +15,22 @@ const cals = [
 
 let events = [
   { calId: 'me', title: 'ריצה בפארק', start: rel(-150), end: rel(-105), location: 'פארק הירקון, תל אביב' },
-  { calId: 'work', title: 'סקירת סטוריבורד — קליפ פתיחה', start: rel(55), end: rel(115), location: '', meet: 'https://meet.google.com/abc-defg-hij', description: 'לעבור על 12 הפריימים ולסגור צבעוניות לסצנה 3.' },
+  { calId: 'work', title: 'סקירת סטוריבורד — קליפ פתיחה ומעברים לסצנה 3', start: rel(55), end: rel(115), location: 'סטודיו, הרא״ה 12 גבעתיים', meet: 'https://meet.google.com/abc-defg-hij', description: 'לעבור על 12 הפריימים ולסגור צבעוניות לסצנה 3.' },
   { calId: 'teach', title: 'שיעור מושן — כיתה ב׳', start: rel(240), end: rel(390), location: 'שנקר, אנה פרנק 12 רמת גן', description: 'נושא: easing ו־anticipation. להביא את הדוגמאות מ־After Effects.' },
   { calId: 'family', title: 'ארוחת ערב אצל ההורים', start: rel(480), end: rel(600), location: 'הרצל 40, ראשון לציון' },
   { calId: 'hol', title: 'ערב חג', start: at(1, 0), end: at(2, 0), allDay: true },
+  { calId: 'family', title: 'יום הולדת לנועה', start: at(0, 0), end: at(1, 0), allDay: true, birthday: true },
   { calId: 'work', title: 'מסירת אנימטיק ללקוח', start: at(1, 10), end: at(1, 11) },
   { calId: 'me', title: 'מספרה', start: at(1, 17, 30), end: at(1, 18, 15), location: 'דיזנגוף 150, תל אביב' },
 ].map(e => ({
-  id: uid(), allDay: false, location: '', description: '', meet: '', reminder: cals.find(c => c.id === e.calId).defaultReminders[0]?.minutes ?? null,
+  id: uid(), allDay: false, birthday: false, location: '', description: '', meet: '', reminder: cals.find(c => c.id === e.calId).defaultReminders[0]?.minutes ?? null,
   reminderIsDefault: true, canEdit: e.calId !== 'hol', htmlLink: 'https://calendar.google.com/', ...e,
 }));
 
 const lists = [{ id: 'main', title: 'המשימות שלי' }, { id: 'studio', title: 'סטודיו' }];
-const t = (o) => ({ id: uid(), listId: 'main', listTitle: 'המשימות שלי', notes: '', status: 'needsAction', completed: null, parent: null, webLink: 'https://tasks.google.com/', ...o });
+const t = (o) => ({ id: uid(), listId: 'main', listTitle: 'המשימות שלי', notes: '', status: 'needsAction', completed: null, parent: null, webLink: 'https://tasks.google.com/', links: [], ...o });
 let tasks = [
-  t({ title: 'לשלוח הצעת מחיר לסטודיו של רוני', due: ymd(today) }),
+  t({ title: 'לשלוח הצעת מחיר לסטודיו של רוני', due: ymd(today), notes: 'לצרף את הפורטפוליו: https://noina-tv.github.io', links: [{ type: 'email', description: 'עדכון לגבי הקליפ', link: 'https://mail.google.com/' }] }),
   t({ title: 'לייצא סטיקרים לוואטסאפ', due: ymd(today), listId: 'studio', listTitle: 'סטודיו', notes: 'webp, 512×512, עד 500KB' }),
   t({ title: 'לבדוק ציונים של פרויקט אמצע', due: ymd(addDays(today, -2)), listId: 'studio', listTitle: 'סטודיו' }),
   t({ title: 'לקנות מתנה לאמא', due: ymd(addDays(today, 3)) }),
@@ -50,7 +51,7 @@ let emails = [
   { from: 'Behance', subject: 'Your project was featured in Motion Graphics', snippet: 'Congrats! Your project "Loop Studies" was added to the Motion Graphics gallery…', mins: 180 },
   { from: 'מזכירות שנקר', subject: 'שינוי חדר לשיעור ביום רביעי', snippet: 'שלום, השיעור יתקיים בחדר 2.14 במקום 3.02 עקב שיפוצים…', mins: 420 },
   { from: 'Google Calendar', subject: 'Invitation: Kickoff — Spring campaign', snippet: 'You have been invited to the following event. Kickoff — Spring campaign…', mins: 900 },
-].map(e => ({ id: uid(), threadId: uid(), unread: true, starred: false, fromEmail: '', link: 'https://mail.google.com/', date: new Date(Date.now() - e.mins * 60000), ...e }));
+].map((e, i) => ({ id: uid(), threadId: uid(), unread: true, labelIds: [['INBOX', 'Label_1'], ['INBOX'], ['INBOX', 'Label_2'], ['INBOX']][i], starred: false, fromEmail: '', link: 'https://mail.google.com/', date: new Date(Date.now() - e.mins * 60000), ...e }));
 
 const wait = (ms = 120) => new Promise(r => setTimeout(r, ms));
 
@@ -63,7 +64,11 @@ export const demo = {
     const ids = new Set(cs.map(c => c.id));
     return events.filter(e => ids.has(e.calId) && e.end > from && e.start < to).map(e => ({ ...e }));
   },
-  async setReminder(ev, minutes) { const e = events.find(x => x.id === ev.id); if (e) { e.reminder = minutes; e.reminderIsDefault = false; } },
+  async setReminder(ev, minutes) {
+    const e = events.find(x => x.id === ev.id); if (!e) return;
+    if (minutes === 'default') { e.reminder = cals.find(c => c.id === e.calId).defaultReminders[0]?.minutes ?? null; e.reminderIsDefault = true; }
+    else { e.reminder = minutes; e.reminderIsDefault = false; }
+  },
   async deleteEvent(ev) { events = events.filter(e => e.id !== ev.id); },
   async createEvent(o) {
     const cal = cals.find(c => c.id === o.calId);
@@ -81,5 +86,8 @@ export const demo = {
   },
   async deleteTask(task) { tasks = tasks.filter(x => x.id !== task.id && x.parent !== task.id); },
   async emails() { await wait(); return emails.map(e => ({ ...e })); },
+  async labels() { return [{ id: 'Label_1', name: 'לקוחות', color: '#16a765' }, { id: 'Label_2', name: 'שנקר', color: '#a479e2' }, { id: 'Label_3', name: 'חשבוניות', color: '#ffad47' }]; },
+  async trashEmail(e) { emails = emails.filter(x => x.id !== e.id); },
+  async untrashEmail(e) { if (!emails.some(x => x.id === e.id)) emails.push(e); },
   async modifyEmail(e, { remove = [] }) { if (remove.includes('INBOX')) emails = emails.filter(x => x.id !== e.id); else { const x = emails.find(y => y.id === e.id); if (x && remove.includes('UNREAD')) x.unread = false; } },
 };

@@ -9,13 +9,13 @@ export const APP_PALETTE = ['#3cc4dc', '#5b8def', '#8f6ee8', '#d16bd4', '#ec5f8b
 const DEFAULT_SETTINGS = {
   theme: 'system', marker: 'bar', colorSource: 'google', calColors: {}, hiddenCals: [],
   gmailEnabled: true, gmailQuery: 'in:inbox is:unread category:primary newer_than:7d',
-  digestEnabled: true, defaultList: null, defaultCal: null, wizardEmails: true,
+  digestEnabled: true, defaultList: null, defaultCal: null, wizardEmails: true, reminderOptions: [10, 30, 60],
 };
 
 export const state = {
   settings: { ...DEFAULT_SETTINGS, ...store.get('settings', {}) },
   day: startOfDay(new Date()),
-  cals: [], lists: [], events: [], tasks: [], emails: [],
+  cals: [], lists: [], events: [], tasks: [], emails: [], labels: [],
   profile: null, loading: true, error: null, mode: 'demo', lastSync: null,
 };
 
@@ -101,6 +101,7 @@ export function refresh() {
       state.cals = cals; state.lists = lists; state.profile = profile;
       if (profile?.email && a.live) store.set('email', profile.email);
       const from = addDays(state.day, -1), to = addDays(state.day, 3);
+      if (state.settings.gmailEnabled) a.labels().then(l => { state.labels = l; emit(); }).catch(e => console.warn('labels', e));
       const [events, tasks, emails] = await Promise.all([
         a.events(visibleCals(), from, to),
         a.tasks(lists),
@@ -234,13 +235,22 @@ export function deleteTask(id) {
 
 export function setReminder(evId, minutes) {
   const ev = state.events.find(e => e.id === evId); if (!ev) return;
-  ev.reminder = minutes; ev.reminderIsDefault = false; emit();
+  if (minutes === 'default') {
+    ev.reminderIsDefault = true;
+    ev.reminder = calById(ev.calId)?.defaultReminders?.find(r => r.method === 'popup')?.minutes ?? null;
+  } else { ev.reminder = minutes; ev.reminderIsDefault = false; }
+  emit();
   api().setReminder(ev, minutes).catch(fail);
 }
 
-export function deleteEvent(evId) {
+export function deleteEvent(evId, { silent = false } = {}) {
   const ev = state.events.find(e => e.id === evId); if (!ev) return;
   state.events = state.events.filter(e => e !== ev); emit();
+  if (silent) {
+    // the wizard keeps its own undo: commit after a grace period unless restored
+    const timer = setTimeout(() => api().deleteEvent(ev).catch(fail), 6000);
+    return () => { clearTimeout(timer); state.events.push(ev); emit(); };
+  }
   toast(`האירוע נמחק: ${ev.title}`, {
     undo: () => { state.events.push(ev); emit(); },
     commit: () => api().deleteEvent(ev).catch(fail),
@@ -252,13 +262,23 @@ export async function addEvent(o) {
   try { await api().createEvent(o); toast('האירוע נוסף ליומן'); await refresh(); } catch (e) { fail(e); }
 }
 
-export function archiveEmail(id, { silent = false } = {}) {
+export function archiveEmail(id, { silent = false, label = null } = {}) {
   const e = state.emails.find(x => x.id === id); if (!e) return;
   state.emails = state.emails.filter(x => x !== e); emit();
-  const commit = () => api().modifyEmail(e, { remove: ['INBOX', 'UNREAD'] }).catch(fail);
+  const commit = () => api().modifyEmail(e, { add: label ? [label] : [], remove: ['INBOX', 'UNREAD'] }).catch(fail);
   if (silent) return commit();
   toast('המייל הועבר לארכיון', { undo: () => { state.emails.push(e); state.emails.sort((a, b) => b.date - a.date); emit(); }, commit });
 }
+
+export function trashEmail(id, { silent = false } = {}) {
+  const e = state.emails.find(x => x.id === id); if (!e) return;
+  state.emails = state.emails.filter(x => x !== e); emit();
+  const restore = () => { state.emails.push(e); state.emails.sort((a, b) => b.date - a.date); emit(); };
+  if (silent) { api().trashEmail(e).catch(fail); return () => { restore(); api().untrashEmail(e).catch(fail); }; }
+  toast('המייל הועבר לאשפה', { undo: restore, commit: () => api().trashEmail(e).catch(fail) });
+}
+
+export const userLabels = e => (e.labelIds || []).map(id => state.labels.find(l => l.id === id)).filter(Boolean);
 
 export function unarchiveEmail(e) {
   if (!state.emails.includes(e)) { state.emails.push(e); state.emails.sort((a, b) => b.date - a.date); }
@@ -272,10 +292,10 @@ export function markEmailRead(id) {
   api().modifyEmail(e, { remove: ['UNREAD'] }).catch(fail);
 }
 
-export async function emailToTask(id, due, { silent = false } = {}) {
+export async function emailToTask(id, due, { silent = false, title, notes, listId, archive = true } = {}) {
   const e = state.emails.find(x => x.id === id); if (!e) return null;
-  archiveEmail(id, { silent: true });
-  const t = await addTask({ title: e.subject, notes: `${e.from}\n${e.link}`, due });
+  if (archive) archiveEmail(id, { silent: true });
+  const t = await addTask({ title: title || e.subject, notes: notes ?? `${e.from}\n${e.link}`, due, listId });
   if (!silent) toast('נוצרה משימה מהמייל והמייל הועבר לארכיון');
   return t;
 }

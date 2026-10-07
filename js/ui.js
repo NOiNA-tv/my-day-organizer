@@ -33,8 +33,10 @@ function nextWidget() {
     return `
       <button class="next" data-act="event" data-id="${ev.id}">
         <i class="next-mark" style="background:${calColor(cal)}"></i>
-        <div class="next-body"><div class="next-k">${live ? `עכשיו · עד ${hm(ev.end)}` : `הבא בתור · ${hm(ev.start)}`}</div><div class="next-t">${esc(ev.title)}</div></div>
-        <div class="next-when ${!live && ms < 30 * 60000 ? 'soon' : ''}">${live ? 'מתרחש' : countdown(ms)}</div>
+        <div class="next-body">
+          <div class="next-k">${live ? `<b class="next-when">קורה עכשיו</b> · עד ${hm(ev.end)}` : `הבא בתור · ${hm(ev.start)} · <b class="next-when ${ms < 30 * 60000 ? 'soon' : ''}">${countdown(ms)}</b>`}</div>
+          <div class="next-t">${esc(ev.title)}</div>
+        </div>
         ${icon('chevL')}
       </button>`;
   }
@@ -53,27 +55,23 @@ function hero() {
   return `
     <header class="hero" id="hero">
       <div class="topbar">
-        <span class="app-name">מה איתי היום?</span>
-        ${w ? `<a class="chip-btn" href="${weatherLink()}" target="_blank" rel="noopener" aria-label="${wx.label}, ${w.now} מעלות${w.city ? ' ב' + esc(w.city) : ''}">
-          <span class="wx-emoji">${wx.icon}</span>${w.now}°<span class="wx-range ltr">${w.min}°–${w.max}°</span></a>` : ''}
+        ${w ? `<a class="chip-btn wx" href="${weatherLink()}" target="_blank" rel="noopener" aria-label="${wx.label}, ${w.now} מעלות${w.city ? ' ב' + esc(w.city) : ''}">
+          <span class="wx-emoji">${wx.icon}</span><span>${w.now}°${w.city ? ` <span class="wx-city">${esc(w.city)}</span>` : ''}</span><span class="wx-range ltr">${w.min}°–${w.max}°</span></a>` : '<span class="chip-btn wx" aria-hidden="true" style="opacity:.4">…</span>'}
+        <span class="topbar-gap"></span>
         <button class="icon-btn" data-act="refresh" aria-label="רענון">${icon('refresh', state.loading ? 'spin' : '')}</button>
         <button class="icon-btn" data-act="settings" aria-label="הגדרות">${icon('settings')}</button>
       </div>
-      <div class="day-row">
-        <div class="day-block">
-          <h1 class="day-name">${dayName(d)}</h1>
-          <div class="date-line">
-            <button class="icon-btn" data-act="prev" aria-label="יום קודם">${icon('chevR')}</button>
-            <button class="date-text" data-act="today" ${today ? 'disabled' : ''}>${longDate(d)}</button>
-            <button class="icon-btn" data-act="next" aria-label="יום הבא">${icon('chevL')}</button>
-            ${today ? '' : `<button class="today-pill" data-act="today">חזרה להיום</button>`}
-          </div>
-        </div>
-        ${today ? ring(progress()) : ''}
+      <div class="day-row ${view.slide || ''}">
+        <span class="app-name">מה איתי היום?</span>
+        <h1 class="day-name">${dayName(d)}</h1>
+        <div class="date-text">${longDate(d)}${today ? '' : ` · <span class="rel">${relLabel(d)}</span>`}</div>
+        <div class="day-side">${today ? ring(progress()) : `<button class="back-today" data-act="today">${icon(d < new Date() ? 'arrowL' : 'arrowR')}<span>חזרה<br>להיום</span></button>`}</div>
       </div>
       ${today ? nextWidget() : ''}
     </header>`;
 }
+
+const relLabel = d => { const n = daysBetween(new Date(), d); return n > 0 ? (n === 1 ? 'מחר' : `בעוד ${n} ימים`) : (n === -1 ? 'אתמול' : `לפני ${-n} ימים`); };
 
 // ---------- events ----------
 function eventRow(ev, now) {
@@ -91,7 +89,7 @@ function eventRow(ev, now) {
         <div class="ev-text">
           <div class="ev-title">${esc(ev.title)}</div>
           <div class="ev-meta">
-            <span><i class="cal-dot" style="background:${c}"></i>${esc(cal?.name || '')}</span>
+            <span>${ev.birthday ? '<span class="cake">🎂</span>' : `<i class="cal-dot" style="background:${c}"></i>`}${esc(cal?.name || '')}</span>
             ${ev.location ? `<span>${icon('pin')}${esc(ev.location.split(',')[0])}</span>` : ''}
           </div>
         </div>
@@ -103,22 +101,24 @@ function eventRow(ev, now) {
     </button>`;
 }
 
+const nowLine = now => `<div class="now" role="separator" aria-label="השעה עכשיו ${hm(now)}"><b>עכשיו ${hm(now)}</b><i></i></div>`;
+
 function eventsSection() {
   const evs = eventsOn(state.day);
   const allDay = evs.filter(e => e.allDay), timed = evs.filter(e => !e.allDay);
   const now = new Date();
   let rows = '', nowDrawn = !isToday();
   for (const ev of timed) {
-    if (!nowDrawn && ev.start > now) { rows += `<div class="now" aria-hidden="true"><b>${hm(now)}</b><i></i></div>`; nowDrawn = true; }
+    if (!nowDrawn && ev.start > now) { rows += nowLine(now); nowDrawn = true; }
     rows += eventRow(ev, now);
   }
-  if (!nowDrawn && timed.length) rows += `<div class="now" aria-hidden="true"><b>${hm(now)}</b><i></i></div>`;
+  if (!nowDrawn && timed.length) rows += nowLine(now);
   return `
     <section class="sec" aria-labelledby="h-ev">
       <div class="sec-h"><h2 id="h-ev">ביומן</h2>${evs.length ? `<span class="count">${evs.length}</span>` : ''}
         <button class="icon-btn" data-act="add-event" aria-label="אירוע חדש">${icon('plus')}</button></div>
       <div class="group mk-${state.settings.marker}">
-        ${allDay.length ? `<div class="allday">${allDay.map(e => `<button class="ad-chip" data-act="event" data-id="${e.id}"><i style="background:${calColor(calById(e.calId))}"></i>${esc(e.title)}</button>`).join('')}</div>` : ''}
+        ${allDay.length ? `<div class="allday">${allDay.map(e => `<button class="ad-chip" data-act="event" data-id="${e.id}">${e.birthday ? '<span class="cake">🎂</span>' : `<i style="background:${calColor(calById(e.calId))}"></i>`}${esc(e.title)}</button>`).join('')}</div>` : ''}
         ${rows || (allDay.length ? '' : `<div class="empty"><b>אין אירועים ${isToday() ? 'היום' : 'ביום הזה'}</b>מקום פנוי ביומן.</div>`)}
       </div>
     </section>`;
@@ -162,7 +162,7 @@ function tasksSection() {
     </section>
     ${upcoming.length || noDate.length ? `
     <section class="sec" aria-labelledby="h-up">
-      <div class="sec-h"><h2 id="h-up">בהמשך</h2><span class="count">30 יום</span></div>
+      <div class="sec-h"><h2 id="h-up">עוד החודש</h2><span class="count">עד ${longDate(addDays(state.day, 30))}</span></div>
       <div class="group">
         ${upcoming.map(t => taskRow(t, { showDue: true })).join('') || '<div class="empty">אין משימות מתוזמנות לחודש הקרוב.</div>'}
         ${noDate.length ? `
@@ -223,7 +223,7 @@ export function render() {
   const y = scrollY;
   app.innerHTML = `
     ${hero()}
-    <main class="body">
+    <main class="body ${view.slide || ''}">
       ${banners()}
       ${eventsSection()}
       ${tasksSection()}
@@ -253,7 +253,6 @@ export function mountFabs() {
   const f = document.createElement('div');
   f.className = 'fabs';
   f.innerHTML = `
-    <button class="fab-mini" data-act="voice" aria-label="הכתבה קולית">${icon('mic')}</button>
     <button class="fab" data-act="wizard" aria-label="אשף: לסדר את היום">${icon('sparkles')}<span class="fab-label">לסדר את היום</span></button>`;
   document.body.append(f);
 }
@@ -276,12 +275,9 @@ export function bindMain() {
       case 'defer': openDeferMenu(b, id); break;
       case 'add-task': openAdd({ kind: 'task' }); break;
       case 'add-event': openAdd({ kind: 'event' }); break;
-      case 'voice': openAdd({ kind: 'task', voice: true }); break;
       case 'settings': openSettings({ onLogin: handlers.login }); break;
       case 'refresh': refresh(); handlers.weather?.(true); break;
-      case 'prev': setDay(addDays(state.day, -1)); break;
-      case 'next': setDay(addDays(state.day, 1)); break;
-      case 'today': setDay(new Date()); break;
+      case 'today': view.slide = state.day < new Date() ? 'in-left' : 'in-right'; setDay(new Date()); setTimeout(() => { view.slide = ''; }, 400); break;
       case 'toggle-done': view.openDone = !view.openDone; render(); break;
       case 'toggle-nodate': view.openNoDate = !view.openNoDate; render(); break;
       case 'login': handlers.login?.(); break;
@@ -291,15 +287,31 @@ export function bindMain() {
       case 'digest': handlers.digestSeen?.(id); break;
     }
   });
-  // swipe between days on the header
-  let x0 = null, y0 = null;
-  document.addEventListener('touchstart', e => { if (e.target.closest('#hero')) { x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; } }, { passive: true });
+  // swipe anywhere on the main screen to change day (RTL: the future is to the left, so swipe right → next day)
+  let x0 = null, y0 = null, t0 = 0;
+  const blocked = el => el.closest('.sheet, .wizard, .menu, .scrim, input, textarea, select, .fabs');
+  document.addEventListener('touchstart', e => {
+    if (e.touches.length !== 1 || blocked(e.target)) { x0 = null; return; }
+    x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; t0 = Date.now();
+  }, { passive: true });
   document.addEventListener('touchend', e => {
     if (x0 == null) return;
     const dx = e.changedTouches[0].clientX - x0, dy = e.changedTouches[0].clientY - y0;
     x0 = null;
-    if (Math.abs(dx) > 70 && Math.abs(dx) > Math.abs(dy) * 1.5) setDay(addDays(state.day, dx > 0 ? 1 : -1)); // RTL: swipe right → next day
+    if (Date.now() - t0 < 700 && Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.6) goDay(dx > 0 ? 1 : -1);
   });
+  document.addEventListener('keydown', e => {
+    if (document.querySelector('.sheet, .wizard, .menu') || e.target.closest?.('input, textarea')) return;
+    if (e.key === 'ArrowLeft') goDay(1);
+    if (e.key === 'ArrowRight') goDay(-1);
+  });
+}
+
+export function goDay(n) {
+  view.slide = n > 0 ? 'in-left' : 'in-right';
+  setDay(n === 0 ? new Date() : addDays(state.day, n));
+  clearTimeout(goDay.t);
+  goDay.t = setTimeout(() => { view.slide = ''; }, 400);
 }
 
 export { ymd };

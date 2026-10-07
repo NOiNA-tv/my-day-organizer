@@ -31,8 +31,23 @@ export function eventTimeText(ev) {
   return `${hm(ev.start)}–${hm(ev.end)}`;
 }
 
-const REMINDERS = [[null, 'ללא'], [5, '5 דק׳'], [30, 'חצי שעה'], [60, 'שעה']];
-const reminderLabel = m => m == null ? 'ללא תזכורת' : m < 60 ? `${m} דק׳ לפני` : m === 60 ? 'שעה לפני' : m % 1440 === 0 ? `${m / 1440} ימים לפני` : `${Math.round(m / 60)} שעות לפני`;
+// Reminder times you can pick from (Settings decides which ones show up as chips)
+export const REMINDER_PRESETS = [0, 5, 10, 15, 30, 45, 60, 120, 180, 1440, 2880, 10080];
+export const remShort = m => m == null ? 'ללא' : m === 0 ? 'בזמן האירוע' : m < 60 ? `${m} דק׳` : m === 60 ? 'שעה' : m === 120 ? 'שעתיים' : m < 1440 ? `${m / 60} שעות` : m === 1440 ? 'יום' : m === 2880 ? 'יומיים' : m === 10080 ? 'שבוע' : `${Math.round(m / 1440)} ימים`;
+export const reminderLabel = m => m == null ? 'ללא תזכורת' : m === 0 ? 'בזמן האירוע' : `${remShort(m)} לפני`;
+
+// The chips shown for one event: none · calendar default · your chosen times (+ the event's current value if it's something else)
+export function reminderChips(ev) {
+  const cal = calById(ev.calId);
+  const def = cal?.defaultReminders?.find(r => r.method === 'popup')?.minutes ?? null;
+  const opts = [{ v: 'null', label: 'ללא', on: !ev.reminderIsDefault && ev.reminder == null, icon: 'bellOff' },
+    { v: 'default', label: `ברירת מחדל${def != null ? ` (${remShort(def)})` : ''}`, on: ev.reminderIsDefault }];
+  const mins = [...state.settings.reminderOptions];
+  if (!ev.reminderIsDefault && ev.reminder != null && !mins.includes(ev.reminder)) mins.push(ev.reminder);
+  mins.sort((a, b) => a - b).forEach(m => opts.push({ v: String(m), label: remShort(m), on: !ev.reminderIsDefault && ev.reminder === m }));
+  return `<div class="seg">${opts.map(o => `<button type="button" data-rem="${o.v}" aria-pressed="${o.on}">${o.icon ? icon(o.icon) : ''}${o.label}</button>`).join('')}</div>`;
+}
+const parseRem = v => v === 'null' ? null : v === 'default' ? 'default' : Number(v);
 
 // ---------- event sheet ----------
 export function openEvent(id) {
@@ -43,8 +58,6 @@ export function openEvent(id) {
     const now = new Date();
     const status = ev.allDay ? '' : ev.end <= now ? 'הסתיים' : ev.start <= now ? `עכשיו · עד ${hm(ev.end)}` : countdown(ev.start - now);
     const nav = ev.location ? navLinks(ev.location) : null;
-    const opts = [...REMINDERS];
-    if (ev.reminder != null && !opts.some(o => o[0] === ev.reminder)) opts.push([ev.reminder, reminderLabel(ev.reminder).replace(' לפני', '')]);
     return `
       <div class="sub"><span><i class="cal-dot" style="background:${calColor(cal)}"></i>${esc(cal?.name || '')}</span><span>${relDayLabel(ev.start)} · ${eventTimeText(ev)}</span></div>
       <h3>${esc(ev.title)}</h3>
@@ -59,8 +72,8 @@ export function openEvent(id) {
         </div>` : ''}
       ${ev.description ? `<div class="field-label">תיאור</div><div class="desc">${linkify(ev.description)}</div>` : ''}
       ${!ev.allDay && ev.canEdit ? `
-        <div class="field-label">${icon('bell')}תזכורת${ev.reminderIsDefault ? ' <span style="font-weight:500">(ברירת המחדל של היומן)</span>' : ''}</div>
-        <div class="seg">${opts.map(([m, l]) => `<button type="button" data-rem="${m}" aria-pressed="${ev.reminder === m}">${m == null ? icon('bellOff') : ''}${l}</button>`).join('')}</div>` : ''}
+        <div class="field-label">${icon('bell')}תזכורת לפני האירוע</div>
+        ${reminderChips(ev)}` : ''}
       <div class="actions">
         <a class="btn grow" href="${esc(ev.htmlLink)}" target="_blank" rel="noopener">${icon('pencil')}עריכה ביומן גוגל</a>
         ${ev.canEdit ? `<button class="btn danger" data-del aria-label="מחיקת האירוע">${icon('trash')}</button>` : ''}
@@ -69,7 +82,7 @@ export function openEvent(id) {
   const el = document.querySelector('.sheet');
   el.addEventListener('click', e => {
     const r = e.target.closest('[data-rem]');
-    if (r) { setReminder(id, r.dataset.rem === 'null' ? null : Number(r.dataset.rem)); paintSheet(); return; }
+    if (r) { setReminder(id, parseRem(r.dataset.rem)); paintSheet(); return; }
     if (e.target.closest('[data-del]')) { closeSheet(); deleteEvent(id); }
   });
 }
@@ -258,7 +271,7 @@ export function openAdd({ kind = 'task', voice = false, date = null } = {}) {
       <div class="field-label">יומן</div>
       <select class="inp" data-key="cal">${writable().map(c => `<option value="${esc(c.id)}" ${c.id === f.cal ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select>
       <div class="field-label">${icon('bell')}תזכורת</div>
-      <div class="seg">${[['default', 'ברירת מחדל'], ...REMINDERS].map(([m, l]) => `<button type="button" data-rem="${m}" aria-pressed="${String(f.reminder) === String(m)}">${l}</button>`).join('')}</div>
+      <div class="seg">${[['default', 'ברירת מחדל'], ['null', 'ללא'], ...state.settings.reminderOptions.map(m => [String(m), remShort(m)])].map(([m, l]) => `<button type="button" data-rem="${m}" aria-pressed="${String(f.reminder) === String(m)}">${l}</button>`).join('')}</div>
     `}
     <div class="actions"><button class="btn primary grow" data-save ${f.title.trim() ? '' : 'disabled'}>${icon('check')}${f.kind === 'task' ? 'הוספת משימה' : 'הוספה ליומן'}</button></div>`,
   { onClose: () => stop?.() });
@@ -360,6 +373,10 @@ export function openSettings({ onLogin } = {}) {
           </div>`).join('')}
       </div>
 
+      <div class="field-label">${icon('bell')}זמני תזכורת לבחירה</div>
+      <p class="sub" style="margin:-2px 0 10px">אלה הזמנים שיופיעו ככפתורים באירועים. ״ברירת מחדל״ היא מה שהוגדר ליומן עצמו בגוגל.</p>
+      <div class="seg">${REMINDER_PRESETS.map(m => `<button type="button" data-remopt="${m}" aria-pressed="${s.reminderOptions.includes(m)}">${remShort(m)}</button>`).join('')}</div>
+
       <div class="field-label">${icon('mail')}מיילים לטיפול</div>
       <div class="set-row"><div class="grow"><b>להציג מיילים ב״מה איתי היום״</b><small>הכרטיסים מאפשרים לארכב או להפוך מייל למשימה</small></div>
         <button class="switch" role="switch" aria-checked="${s.gmailEnabled}" data-toggle-set="gmailEnabled" aria-label="מיילים"></button></div>
@@ -396,6 +413,11 @@ export function openSettings({ onLogin } = {}) {
       saveSettings({ calColors: cc });
     } else if (b.dataset.colorsrc) saveSettings({ colorSource: b.dataset.colorsrc, calColors: {} });
     else if (b.dataset.marker) saveSettings({ marker: b.dataset.marker });
+    else if (b.dataset.remopt) {
+      const m = Number(b.dataset.remopt);
+      const list = s.reminderOptions.includes(m) ? s.reminderOptions.filter(x => x !== m) : [...s.reminderOptions, m].sort((a, c) => a - c);
+      saveSettings({ reminderOptions: list });
+    }
     else if (b.dataset.toggleSet) { saveSettings({ [b.dataset.toggleSet]: !s[b.dataset.toggleSet] }); if (b.dataset.toggleSet === 'gmailEnabled') refresh(); }
     else if ('login' in b.dataset) { closeSheet(true, true); onLogin?.(); return; }
     else if ('logout' in b.dataset) { auth.logout(); location.reload(); return; }
