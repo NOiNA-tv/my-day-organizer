@@ -95,7 +95,7 @@ html, body { overflow-x: clip; }
   letter-spacing: -.01em; margin: 0; display: block; grid-area: day; align-self: center;
 }
 .day-side { grid-area: side; align-self: center; }
-.day-side { width: 92px; display: grid; place-items: center; }
+.day-side { width: 92px; display: grid; place-items: center; transform: translateY(4px); }
 .back-today {
   width: 88px; height: 88px; border-radius: 44px; display: grid; place-content: center; justify-items: center; gap: 4px; text-align: center;
   border: 2px dashed color-mix(in srgb, var(--header-ink) 35%, transparent); font-weight: 700; font-size: 13.5px; line-height: 1.15;
