@@ -6,7 +6,8 @@ import {
 } from './data.js';
 import { reducedMotion, haptic, esc, hm, dayName, longDate, shortDate, addDays, ymd, fromYmd, daysBetween, daysLeftLabel, countdown, sameDay, startOfDay, relDayLabel } from './util.js';
 import { openEvent, openTask, openAdd, openSettings, openDeferMenu, eventTimeText } from './sheets.js';
-import { wmo, weatherLink, digestIssue } from './extras.js';
+import { wmo, weatherLink, digestIssue, digestIndex } from './extras.js';
+import { DIGEST_URL } from './config.js';
 import { auth } from './auth.js';
 import { openTimePicker } from './timepicker.js';
 import { store } from './util.js';
@@ -67,6 +68,23 @@ function digestForDay() {
   digestIssue(want).then(x => { view.issues[want] = x; if (x) render(); });
   return null;
 }
+// the issue that covers the week of the day on screen (issues are dated by their Sunday)
+function weekIssueId() {
+  if (!state.settings.digestEnabled) return null;
+  if (!view.digestIdx) {
+    view.digestIdx = [];
+    digestIndex().then(idx => { view.digestIdx = idx; if (idx.length) render(); });
+    return null;
+  }
+  const day = ymd(state.day);
+  return view.digestIdx.map(x => x.id).filter(id => id <= day).sort().pop() || null;
+}
+function digestBtn() {
+  const id = weekIssueId();
+  if (!id) return '';
+  const seen = view.issues?.[id]?.seen ?? (store.get('digestSeenAll') || []).includes(id);
+  return `<a class="icon-btn dg-btn ${seen ? '' : 'new'}" href="${DIGEST_URL}?issue=${id}" data-act="digest" data-id="${id}" aria-label="התלקיט של השבוע"><span aria-hidden="true">¶</span></a>`;
+}
 function digestCard(dg) {
   return `
     <a class="dg-card ${dg.seen ? 'seen' : ''}" href="${dg.url}" data-act="digest" data-id="${dg.id}">
@@ -95,7 +113,8 @@ function openDigest(card) {
   document.body.append(ov);
   document.documentElement.classList.add('wiz-open');
   const full = { top: 0, left: 0, width: innerWidth, height: innerHeight, radius: 0 };
-  const from = { top: r.top, left: r.left, width: r.width, height: r.height, radius: 18 };
+  const R = parseFloat(getComputedStyle(card).borderTopLeftRadius) || 18;
+  const from = { top: r.top, left: r.left, width: r.width, height: r.height, radius: Math.min(R, r.height / 2) };
   const box = g => ({ top: g.top + 'px', left: g.left + 'px', width: g.width + 'px', height: g.height + 'px', borderRadius: g.radius + 'px' });
   // a rounded rectangle the shape of the card grows to fill the screen (corners straighten only at the very end)
   const frames = (a, b) => [box(a), { ...box({ ...b, radius: Math.max(a.radius, b.radius) * .6 }), offset: .85 }, box(b)];
@@ -123,7 +142,7 @@ function openDigest(card) {
     ov.classList.remove('ready');
     ov.classList.add('closing'); // the page fades out while the panel is already shrinking
     const cr = card.isConnected ? card.getBoundingClientRect() : from;
-    const rr = { top: cr.top, left: cr.left, width: cr.width, height: cr.height, radius: 18 };
+    const rr = { top: cr.top, left: cr.left, width: cr.width, height: cr.height, radius: from.radius };
     const done = () => { ov.remove(); document.documentElement.classList.remove('wiz-open'); };
     if (reducedMotion()) return done();
     const C = 640, CE = 'cubic-bezier(.45, 0, .2, 1)';
@@ -149,6 +168,7 @@ function hero() {
         ${w ? `<a class="chip-btn wx" href="${weatherLink()}" target="_blank" rel="noopener" aria-label="${wx.label}, ${w.now} מעלות${w.city ? ' ב' + esc(w.city) : ''}">
           <span class="wx-emoji">${wx.icon}</span><span>${w.now}°${w.city ? ` <span class="wx-city">${esc(w.city)}</span>` : ''}</span><span class="wx-range ltr">${w.min}°–${w.max}°</span></a>` : '<span class="chip-btn wx" aria-hidden="true" style="opacity:.4">…</span>'}
         <span class="topbar-gap"></span>
+        ${digestBtn()}
         <button class="icon-btn" data-act="refresh" aria-label="רענון">${icon('refresh', state.loading ? 'spin' : '')}</button>
         <button class="icon-btn" data-act="settings" aria-label="הגדרות">${icon('settings')}</button>
       </div>
@@ -637,7 +657,7 @@ export function bindMain() {
       case 'wizard': handlers.wizard?.('morning', b); break;
       case 'wizard-evening': handlers.wizard?.('evening', document.querySelector('.fab')); break;
       case 'wizard-mail': handlers.wizard?.('mail', document.querySelector('.fab')); break;
-      case 'digest': e.preventDefault(); handlers.digestSeen?.(id); openDigest(b); break;
+      case 'digest': e.preventDefault(); handlers.digestSeen?.(id); b.classList.remove('new'); openDigest(b); break;
     }
   });
   // swipe anywhere on the main screen to change day (RTL: the future is to the left, so swipe right → next day)
