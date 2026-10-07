@@ -676,3 +676,56 @@ select.inp { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.
 .gh-setup a { color: var(--brand-deep); font-weight: 700; }
 .gh-setup code { direction: ltr; unicode-bidi: isolate; background: var(--surface); padding: 1px 5px; border-radius: 5px; font-size: 12.5px; }
 .link-btn { color: var(--ink-3); text-decoration: underline; font-size: 12.5px; }
+
+/* round 5 */
+.ev-side { flex-direction: row; align-items: center; align-self: center; gap: 8px; }
+.ev.live { background: color-mix(in srgb, var(--brand) 11%, var(--surface)); box-shadow: inset 0 0 0 2px var(--brand), 0 0 24px color-mix(in srgb, var(--brand) 35%, transparent); border-radius: 16px; z-index: 1; }
+.ev.live::before { display: none; }
+.ev.live + .now { padding-block: 0; height: 0; margin-block: 0; z-index: 3; }
+.ev.live + .now b { transform: translateY(0); }
+.ev.live + .now + .ev, .ev.live + .now + .task { border-top: 0; }
+.now-pill { background: var(--brand); color: #06343e; }
+.ev + .ev.live, .ev.live + .ev { border-top-color: transparent; }
+
+.task.combo { grid-template-columns: 54px 40px minmax(0, 1fr); padding: 4px 14px 4px 10px; gap: 0 4px; -webkit-touch-callout: none; user-select: none; -webkit-user-select: none; }
+.task.combo.untimed { grid-template-columns: 40px minmax(0, 1fr); padding-inline-start: 5px; }
+.task.combo .t-time { align-self: center; font-weight: 700; font-size: 15px; font-variant-numeric: tabular-nums; direction: ltr; text-align: right; color: var(--brand-deep); padding: 10px 0; border-radius: 10px; -webkit-touch-callout: none; }
+.task.combo .t-time:not(.static):active { background: var(--surface-2); }
+.task.combo .ev-time { display: none; }
+.group.dnd [data-slot]:not(.lifting) { transition: transform .22s cubic-bezier(.2, .8, .2, 1); }
+.task.lifting { transition: box-shadow .2s; box-shadow: 0 16px 40px rgba(6, 52, 62, .28); background: var(--surface); border-radius: 16px; z-index: 6; }
+.ghost-time { position: fixed; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.task-meta .rem { font-weight: 600; }
+
+.sub-row.sub-add { flex-direction: row-reverse; }
+.sub-row.sub-add input { text-align: right; }
+.inp, textarea.inp { text-align: right; }
+.inp[dir="ltr"] { text-align: left; }
+
+.snack { background: var(--brand-soft); color: var(--ink); border: 1.5px solid color-mix(in srgb, var(--brand) 55%, transparent); bottom: calc(96px + env(safe-area-inset-bottom)); box-shadow: 0 12px 34px rgba(6, 52, 62, .22); font-weight: 600; }
+.snack button { color: var(--brand-deep); }
+[data-theme="dark"] .snack { background: #1c4b55; color: #e8fbff; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .snack { background: #1c4b55; color: #e8fbff; } }
+
+.tile.evening { background: linear-gradient(135deg, #0d4b57, #0b6d7e); color: #e8fbff; }
+.tile.evening .tile-s, .tile.evening .go { color: #bfeef6; }
+.tile.evening .tile-ic { background: rgba(255, 255, 255, .14); color: #fff; }
+.tile.mail .tile-ic, [data-theme="dark"] .tile.mail .tile-ic { background: #ea4335; color: #fff; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .tile.mail .tile-ic { background: #ea4335; color: #fff; } }
+
+.dg-card {
+  position: relative; overflow: hidden; display: flex; align-items: center; gap: 12px; margin-top: 16px; padding: 16px; min-height: 104px;
+  border-radius: 18px; color: #fff; text-decoration: none; background: #06343e; box-shadow: 0 6px 20px rgba(6, 52, 62, .25);
+}
+.dg-card .dg-bg { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.dg-card::before { content: ''; position: absolute; inset: 0; background: linear-gradient(270deg, rgba(4, 30, 36, .88), rgba(4, 30, 36, .55)); }
+.dg-card > *:not(.dg-bg) { position: relative; }
+.dg-card .next-k { color: #bfeef6; }
+.dg-card .next-t { font-size: 22px; font-weight: 800; color: #fff; }
+.dg-s { font-size: 14px; color: rgba(255, 255, 255, .85); margin-top: 1px; }
+.dg-ic { width: 46px; height: 46px; border-radius: 14px; display: grid; place-items: center; flex: none; font-family: Georgia, 'Times New Roman', serif; font-size: 32px; font-weight: 700; color: #fff; background: rgba(255, 255, 255, .14); border: 1px solid rgba(255, 255, 255, .25); line-height: 1; }
+.dg-card .ic { color: rgba(255, 255, 255, .8); }
+.dg-card + .next { margin-top: 10px; }
+.pilcrow { font-family: Georgia, serif; font-weight: 700; font-size: 1.15em; line-height: 1; }
+.ev-side { flex-wrap: wrap; justify-content: flex-end; max-width: 128px; row-gap: 6px; }
+.ev.live .ev-side { flex-wrap: nowrap; max-width: none; }

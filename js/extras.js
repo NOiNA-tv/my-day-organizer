@@ -65,8 +65,12 @@ export async function latestDigest() {
     const latest = idx.issues?.[0];
     if (!latest) return null;
     const issue = await (await fetch(`${DIGEST_URL}data/${latest.id}.json`)).json();
-    const top = (issue.items || []).filter(i => i.top).sort((a, b) => a.top - b.top).slice(0, 3);
+    const top = (issue.items || []).filter(i => i.top).sort((a, b) => a.top - b.top).slice(0, 5);
+    // cover: the most-mentioned of the top five that has a picture
+    const score = i => (i.mentions || []).reduce((n, m) => n + (m.count || 1), 0);
+    const cover = [...top].filter(i => i.image).sort((a, b) => score(b) - score(a) || a.top - b.top)[0]?.image || '';
     return {
+      cover,
       id: latest.id, label: latest.he, intro: issue.intro?.he || issue.intro?.en || '',
       stats: issue.stats, url: DIGEST_URL, top: top.map(i => ({ title: i.title?.he || i.title?.en, image: i.image })),
       seen: store.get('digestSeen') === latest.id,

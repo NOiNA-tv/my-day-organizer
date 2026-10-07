@@ -14,6 +14,7 @@ const cals = [
 
 let events = [
   { calId: 'me', title: 'ריצה בפארק', start: rel(-150), end: rel(-105), location: 'פארק הירקון, תל אביב' },
+  { calId: 'work', title: 'עבודה על האנימטיק', start: rel(-25), end: rel(30), location: '' },
   { calId: 'work', title: 'סקירת סטוריבורד — קליפ פתיחה ומעברים לסצנה 3', start: rel(55), end: rel(115), location: 'סטודיו, הרא״ה 12 גבעתיים',
     attachments: [{ title: 'סטוריבורד v3.pdf', url: 'https://drive.google.com/', icon: '' }],
     guests: [{ name: 'רוני לוי', email: 'roni@example.com' }, { name: 'דנה', email: 'dana@example.com' }, { name: 'אני', email: 'me@example.com', self: true }], meet: 'https://meet.google.com/abc-defg-hij', description: 'לעבור על 12 הפריימים ולסגור צבעוניות לסצנה 3.' },

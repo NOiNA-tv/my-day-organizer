@@ -35,7 +35,6 @@ export function paintSheet() {
   const sel = key && 'selectionStart' in a ? [a.selectionStart, a.selectionEnd] : null;
   const scroll = box.scrollTop;
   box.innerHTML = current.render();
-  box.querySelectorAll('input:not([type]), input[type=text], textarea').forEach(n => { if (!n.hasAttribute('dir')) n.dir = 'auto'; });
   box.scrollTop = scroll;
   if (key) {
     const n = box.querySelector(`[data-key="${key}"]`);

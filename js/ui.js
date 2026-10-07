@@ -4,10 +4,11 @@ import {
   state, eventsOn, taskGroups, progress, nextUp, isToday, calById, calColor, setDay, refresh, toggleTask, APP_PALETTE, snoozedUntil,
   reminderOf, setTaskReminder, saveOrder, saveSettings,
 } from './data.js';
-import { esc, hm, dayName, longDate, shortDate, addDays, ymd, fromYmd, daysBetween, daysLeftLabel, countdown, sameDay, startOfDay, relDayLabel } from './util.js';
+import { haptic, esc, hm, dayName, longDate, shortDate, addDays, ymd, fromYmd, daysBetween, daysLeftLabel, countdown, sameDay, startOfDay, relDayLabel } from './util.js';
 import { openEvent, openTask, openAdd, openSettings, openDeferMenu, eventTimeText } from './sheets.js';
 import { wmo, weatherLink } from './extras.js';
 import { auth } from './auth.js';
+import { store } from './util.js';
 
 export const view = { weather: null, digest: null, openDone: false, openNoDate: false };
 let handlers = {};
@@ -50,6 +51,28 @@ function nextWidget() {
   return `<div class="next"><i class="next-mark" style="background:var(--ok)"></i><div class="next-body"><div class="next-k">אין עוד אירועים או משימות להיום</div><div class="next-t">היום שלך פנוי ✨</div></div></div>`;
 }
 
+// The digest ("התלקיט") shows up on Sundays once that week's issue is out
+function digestReady() {
+  const dg = view.digest;
+  if (!dg || !state.settings.digestEnabled || !isToday()) return false;
+  const now = new Date();
+  return (now.getDay() === 0 && dg.id === ymd(now)) || store.get('debugDigest');
+}
+function digestCard() {
+  const dg = view.digest;
+  return `
+    <a class="dg-card ${dg.seen ? 'seen' : ''}" href="${dg.url}" target="_blank" rel="noopener" data-act="digest" data-id="${dg.id}">
+      ${dg.cover ? `<img class="dg-bg" src="${esc(dg.cover)}" alt="" referrerpolicy="no-referrer" onerror="this.remove()">` : ''}
+      <span class="dg-ic" aria-hidden="true">¶</span>
+      <div class="next-body">
+        <div class="next-k">${dg.seen ? 'הגיליון של השבוע' : 'גיליון חדש · יום ראשון'}</div>
+        <div class="next-t">התלקיט</div>
+        <div class="dg-s">מה קרה השבוע בעיצוב ובאנימציה</div>
+      </div>
+      ${icon('chevL')}
+    </a>`;
+}
+
 function hero() {
   const d = state.day, today = isToday(), w = view.weather;
   const wx = w ? wmo(w.code, w.isDay) : null;
@@ -67,6 +90,7 @@ function hero() {
         <div class="date-text">${longDate(d)}${today ? '' : ` · <span class="rel">${relLabel(d)}</span>`}</div>
         <div class="day-side">${today ? ring(progress()) : `<button class="back-today" data-act="today"><svg viewBox="0 0 92 92" aria-hidden="true"><circle cx="46" cy="46" r="40" fill="none" stroke-width="8" stroke-dasharray="10.5 6.255"/></svg><span class="bt-in">${icon(d < new Date() ? 'arrowL' : 'arrowR')}<span>חזרה<br>להיום</span></span></button>`}</div>
       </div>
+      ${today && digestReady() ? digestCard() : ''}
       ${today ? nextWidget() : ''}
     </header>`;
 }
@@ -84,7 +108,7 @@ function eventRow(ev, now) {
   const soon = !ev.allDay && ms > 0 && ms <= 2 * 3600e3;
   const startsToday = sameDay(ev.start, state.day);
   return `
-    <button class="ev ${past ? 'past' : ''} ${live ? 'live' : ''}" style="--c:${c}" data-act="event" data-id="${ev.id}" data-slot="event" data-start="${ev.start.toISOString()}" data-end="${ev.end.toISOString()}">
+    <button class="ev ${past ? 'past' : ''} ${live ? 'live' : ''}" style="--c:${c}" data-act="event" data-id="${ev.id}" data-fk="e${ev.id}" data-slot="event" data-start="${ev.start.toISOString()}" data-end="${ev.end.toISOString()}">
       <div class="ev-time">${startsToday ? hm(ev.start) : '00:00'}<small>${hm(ev.end)}</small></div>
       <div class="ev-main"><i class="ev-bar" style="background:${c}"></i>
         <div class="ev-text">
@@ -96,7 +120,7 @@ function eventRow(ev, now) {
         </div>
       </div>
       <div class="ev-side">
-        ${live ? `<span class="soon-pill later">עכשיו</span>` : soon ? `<span class="soon-pill">${countdown(ms)}</span>` : ''}
+        ${live ? `<span class="soon-pill now-pill">עכשיו</span>` : soon ? `<span class="soon-pill">${countdown(ms)}</span>` : ''}
         <span class="mini-icons">${ev.reminder != null && !past ? icon('bell') : ''}${ev.meet ? icon('video') : ''}${ev.attachments?.length ? icon('paperclip') : ''}${guestCount(ev) ? `<span class="guests">${icon('users')}${guestCount(ev)}</span>` : ''}</span>
       </div>
     </button>`;
@@ -104,7 +128,7 @@ function eventRow(ev, now) {
 
 const guestCount = ev => (ev.guests || []).length > 1 ? ev.guests.length : 0;
 
-const nowLine = now => `<div class="now" role="separator" aria-label="השעה עכשיו ${hm(now)}"><b>${hm(now)}</b><i></i></div>`;
+const nowLine = now => `<div class="now" data-slot="now" role="separator" aria-label="השעה עכשיו ${hm(now)}"><b>${hm(now)}</b><i></i></div>`;
 
 function eventsSection() {
   const evs = eventsOn(state.day);
@@ -154,7 +178,6 @@ function daySection() {
   return `
     <section class="sec" aria-labelledby="h-day">
       <div class="sec-h"><h2 id="h-day">${today ? 'היום שלי' : `יום ${dayName(day)}`}</h2>${total ? `<span class="count">${total}</span>` : ''}
-        ${viewToggle()}
         <button class="icon-btn" data-act="add-menu" aria-label="הוספה">${icon('plus')}</button></div>
       <div class="group combo mk-${state.settings.marker}">
         ${allDay.length ? `<div class="allday">${allDay.map(e => `<button class="ad-chip" data-act="event" data-id="${e.id}">${e.birthday ? '<span class="cake">🎂</span>' : `<i style="background:${calColor(calById(e.calId))}"></i>`}${esc(e.title)}</button>`).join('')}</div>` : ''}
@@ -167,7 +190,7 @@ function daySection() {
           <button class="disclosure" data-act="toggle-done" aria-expanded="${view.openDone}">${icon('check')} בוצעו היום (${doneToday.length})${icon('chevD')}</button>
           ${view.openDone ? doneToday.map(t => taskRow(t)).join('') : ''}` : ''}
       </div>
-      ${dueNow.length ? '<p class="dnd-tip">גוררים משימה בעזרת ⠿ כדי למקם אותה בין האירועים. המיקום קובע את שעת התזכורת.</p>' : ''}
+      ${dueNow.length ? '<p class="dnd-tip">לחיצה ארוכה על משימה וגרירה ממקמת אותה בין האירועים, והמיקום קובע את שעת התזכורת. לחיצה על השעה משנה אותה.</p>' : ''}
     </section>`;
 }
 
@@ -175,72 +198,138 @@ function comboTaskRow(t, time) {
   const n = t.due ? daysBetween(new Date(), fromYmd(t.due)) : null;
   const subsDone = t.subtasks.filter(x => x.status === 'completed').length;
   const meta = [];
-  if (time) meta.push(`<span class="rem">${icon('bell')}${hm(time)}</span>`);
+  if (time) meta.push(`<span class="rem">${icon('bell')}תזכורת</span>`);
   if (n != null && n < 0) meta.push(`<span class="late">${daysLeftLabel(n)}</span>`);
   if (t.subtasks.length) meta.push(`<span>${icon('list')} ${subsDone}/${t.subtasks.length}</span>`);
   if (t.notes) meta.push(`<span>${icon('pencil')} פרטים</span>`);
   if (state.lists.length > 1) meta.push(`<span>${esc(t.listTitle || '')}</span>`);
   const past = time && time < new Date();
   return `
-    <div class="task combo ${past ? 'past' : ''}" data-task="${t.id}" data-slot="task" ${time ? `data-time="${time.toISOString()}"` : ''}>
-      <div class="ev-time">${time ? hm(time) : ''}</div>
+    <div class="task combo ${time ? '' : 'untimed'} ${past ? 'past' : ''}" data-task="${t.id}" data-fk="t${t.id}" data-slot="task" ${time ? `data-time="${time.toISOString()}"` : ''}>
+      ${time ? `<button class="t-time" data-ttime="${t.id}" aria-label="שעת תזכורת ${hm(time)}, לשינוי">${hm(time)}</button>` : ''}
       <button class="check" data-act="toggle" data-id="${t.id}" aria-label="סימון כבוצע: ${esc(t.title)}"><span>${icon('check')}</span></button>
       <button class="task-main" data-act="task" data-id="${t.id}">
         <div class="task-title">${esc(t.title)}</div>
         ${meta.length ? `<div class="task-meta">${meta.join('')}</div>` : ''}
       </button>
-      <button class="icon-btn grip" data-grip="${t.id}" aria-label="גרירה לשינוי מיקום ושעה">${icon('grip')}</button>
     </div>`;
 }
 
-// ---------- drag a task within the combined list → its reminder time follows the spot ----------
-function startDrag(e, handle) {
-  const row = handle.closest('.task.combo');
+// ---------- FLIP: animate rows from where they were to where they land ----------
+let flipSnap = null;
+export function captureFlip() {
+  flipSnap = new Map([...document.querySelectorAll('[data-fk]')].map(el => [el.dataset.fk, el.getBoundingClientRect().top]));
+}
+function playFlip() {
+  if (!flipSnap) return;
+  const snap = flipSnap; flipSnap = null;
+  document.querySelectorAll('[data-fk]').forEach(el => {
+    const was = snap.get(el.dataset.fk); if (was == null) return;
+    const dy = was - el.getBoundingClientRect().top;
+    if (Math.abs(dy) < 1) return;
+    el.animate([{ transform: `translateY(${dy}px)` }, { transform: 'none' }], { duration: 420, easing: 'cubic-bezier(.2, .8, .2, 1)' });
+  });
+}
+
+// short tap on a task's time → native time picker; the task then glides to its new place
+function pickTime(id, anchor) {
+  const r = reminderOf(id);
+  const inp = document.createElement('input');
+  inp.type = 'time';
+  inp.value = r ? hm(r.time) : '';
+  inp.className = 'ghost-time';
+  const box = anchor.getBoundingClientRect();
+  inp.style.top = box.top + 'px'; inp.style.left = box.left + 'px';
+  document.body.append(inp);
+  const done = () => setTimeout(() => inp.remove(), 300);
+  inp.addEventListener('change', () => {
+    if (!inp.value) return done();
+    const [h, m] = inp.value.split(':').map(Number);
+    const d = new Date(state.day); d.setHours(h, m, 0, 0);
+    captureFlip();
+    state.tieOrder[id] = Date.now(); saveOrder();
+    setTaskReminder(id, d, { quiet: false });
+    done();
+  });
+  inp.addEventListener('blur', done);
+  try { inp.showPicker(); } catch { inp.focus(); inp.click(); }
+}
+
+// ---------- long-press a task, then drag it: the list makes room; the spot sets its reminder ----------
+let dragging = null, swallowClick = false;
+function armLongPress(e) {
+  const row = e.target.closest('.task.combo');
+  if (!row || e.target.closest('.check') || e.button > 0) return;
+  const x0 = e.clientX, y0 = e.clientY;
+  let fired = false;
+  const cancel = () => { clearTimeout(timer); removeEventListener('pointermove', mv); removeEventListener('pointerup', cancel); removeEventListener('pointercancel', cancel); };
+  const mv = ev => { if (!fired && Math.hypot(ev.clientX - x0, ev.clientY - y0) > 8) cancel(); };
+  const timer = setTimeout(() => { fired = true; cancel(); startDrag(row, x0, y0, e.pointerId); }, 380);
+  addEventListener('pointermove', mv);
+  addEventListener('pointerup', cancel);
+  addEventListener('pointercancel', cancel);
+}
+
+function startDrag(row, x0, y0, pointerId) {
   const group = row.closest('.group.combo');
-  if (!row || !group) return;
-  e.preventDefault();
-  handle.setPointerCapture(e.pointerId);
-  const id = handle.dataset.grip;
-  const y0 = e.clientY, rect = row.getBoundingClientRect();
+  if (!group) return;
+  haptic(15);
+  swallowClick = true;
+  window.getSelection?.().removeAllRanges();
+  const id = row.dataset.task;
+  const topBefore = row.getBoundingClientRect().top;
   group.classList.add('dnd');
   row.classList.add('lifting');
-  const ind = document.createElement('div');
-  ind.className = 'drop-ind';
-  group.append(ind);
-  let target = null, raf = 0, lastY = y0;
-  const slots = () => [...group.querySelectorAll('[data-slot]')].filter(el => el !== row && !el.classList.contains('hidden-slot'));
-  const compute = y => {
-    const list = slots();
-    let i = list.findIndex(el => { const r = el.getBoundingClientRect(); return y < r.top + r.height / 2; });
-    if (i < 0) i = list.length;
-    if (i === 0 && list[0]?.dataset.slot === 'anyhead') i = 1; // can't drop above the first header
-    target = { list, i };
-    const gr = group.getBoundingClientRect();
-    const ref = list[i] ? list[i].getBoundingClientRect().top : list[i - 1].getBoundingClientRect().bottom;
-    ind.style.top = (ref - gr.top - 1) + 'px';
+  const offset = row.getBoundingClientRect().top - topBefore; // layout shift from revealing drop zones
+  const all = [...group.querySelectorAll('[data-slot]')];
+  const o = all.indexOf(row);
+  const others = all.filter(el => el !== row);
+  const h = row.offsetHeight;
+  const sy0 = scrollY;
+  const mids = others.map(el => { const r = el.getBoundingClientRect(); return r.top + scrollY + r.height / 2; });
+  let i = o, lastY = y0, raf = 0;
+  const layout = () => {
+    others.forEach((el, k) => {
+      const shift = k >= i && k < o ? h : k < i && k >= o ? -h : 0;
+      el.style.transform = shift ? `translateY(${shift}px)` : '';
+    });
+  };
+  const move = ev => {
+    if (ev.pointerId !== pointerId && ev.pointerId != null && pointerId != null) return;
+    lastY = ev.clientY;
+    row.style.transform = `translateY(${ev.clientY - y0 + (scrollY - sy0) - offset}px) scale(1.02)`;
+    const docY = ev.clientY + scrollY;
+    let k = mids.findIndex(m => docY < m);
+    if (k < 0) k = others.length;
+    if (k === 0 && others[0]?.dataset.slot === 'anyhead') k = 1;
+    if (k !== i) { i = k; layout(); haptic(5); }
   };
   const scroller = () => {
-    if (lastY < 90) scrollBy(0, -10); else if (lastY > innerHeight - 90) scrollBy(0, 10);
+    if (lastY < 100) scrollBy(0, -8); else if (lastY > innerHeight - 110) scrollBy(0, 8);
     raf = requestAnimationFrame(scroller);
   };
   raf = requestAnimationFrame(scroller);
-  const move = ev => {
-    lastY = ev.clientY;
-    row.style.transform = `translateY(${ev.clientY - y0}px)`;
-    compute(ev.clientY);
-  };
+  const blockScroll = ev => ev.preventDefault();
   const up = () => {
     cancelAnimationFrame(raf);
-    handle.removeEventListener('pointermove', move);
-    handle.removeEventListener('pointerup', up);
-    handle.removeEventListener('pointercancel', up);
-    group.classList.remove('dnd'); row.classList.remove('lifting'); row.style.transform = ''; ind.remove();
-    if (target) placeTask(id, target.list, target.i);
+    removeEventListener('pointermove', move);
+    removeEventListener('pointerup', up);
+    removeEventListener('pointercancel', up);
+    removeEventListener('touchmove', blockScroll);
+    captureFlip(); // positions as they look right now, mid-drag
+    group.classList.remove('dnd'); row.classList.remove('lifting');
+    [row, ...others].forEach(el => { el.style.transform = ''; });
+    dragging = null;
+    setTimeout(() => { swallowClick = false; }, 50);
+    placeTask(id, others, i);
   };
-  compute(rect.top + rect.height / 2);
-  handle.addEventListener('pointermove', move);
-  handle.addEventListener('pointerup', up);
-  handle.addEventListener('pointercancel', up);
+  dragging = { id };
+  addEventListener('pointermove', move);
+  addEventListener('pointerup', up);
+  addEventListener('pointercancel', up);
+  addEventListener('touchmove', blockScroll, { passive: false });
+  layout();
+  move({ clientY: y0, pointerId });
 }
 
 function placeTask(id, list, i) {
@@ -251,18 +340,16 @@ function placeTask(id, list, i) {
       .filter(el => el.dataset.slot === 'task' && (el.dataset.me || !el.dataset.time))
       .map(el => el.dataset.me ? id : el.closest('[data-task]').dataset.task);
     state.anyOrder = ids; saveOrder();
-    setTaskReminder(id, null);
-    render();
+    if (reminderOf(id)) setTaskReminder(id, null); else render();
     return;
   }
-  const timeOf = el => el.dataset.slot === 'event' ? null : el.dataset.time ? new Date(el.dataset.time) : null;
+  const timeOf = el => el.dataset.time ? new Date(el.dataset.time) : null;
   const prev = [...before].reverse().find(el => el.dataset.slot === 'event' || el.dataset.time);
   const next = after.find(el => el.dataset.slot === 'event' || el.dataset.time);
   let at;
   if (prev) at = prev.dataset.slot === 'event' ? new Date(prev.dataset.end) : timeOf(prev);
   else if (next) at = new Date((next.dataset.slot === 'event' ? new Date(next.dataset.start) : timeOf(next)).getTime() - 15 * 60000);
   else { at = isToday() ? new Date() : new Date(state.day); if (!isToday()) at.setHours(9, 0, 0, 0); else at.setMinutes(Math.ceil(at.getMinutes() / 15) * 15, 0, 0); }
-  // keep it on the selected day
   if (!sameDay(at, state.day)) { at = new Date(state.day); at.setHours(prev ? 23 : 0, prev ? 45 : 0, 0, 0); }
   state.tieOrder[id] = Date.now(); state.anyOrder = state.anyOrder.filter(x => x !== id); saveOrder();
   setTaskReminder(id, at, { quiet: false });
@@ -311,36 +398,37 @@ function tasksSection({ withToday = true } = {}) {
     ${aheadSection(upcoming, noDate)}`;
 }
 
-// "עוד השבוע" (events in the next 7 days) and "עוד החודש" (tasks) — one card, two tabs
-function aheadSection(upcoming, noDate) {
-  const tab = view.aheadTab || 'week';
-  const end = tab === 'week' ? addDays(state.day, 7) : addDays(state.day, 30);
+// "עוד השבוע": the next 7 days, events and tasks together, grouped by day
+function aheadSection() {
+  const open = state.tasks.filter(t => !t.parent && t.status !== 'completed' && t.due);
   let body = '';
-  if (tab === 'week') {
-    for (let k = 1; k <= 7; k++) {
-      const d = addDays(state.day, k);
-      const evs = eventsOn(d);
-      if (!evs.length) continue;
-      const n = daysBetween(new Date(), d);
-      body += `<div class="day-head"><b>${n === 1 ? 'מחר' : n === 2 ? 'מחרתיים' : `יום ${dayName(d)}`}</b><span>${n <= 2 ? `יום ${dayName(d)}, ` : ''}${longDate(d)}</span></div>`;
-      body += evs.map(ev => weekRow(ev, d)).join('');
-    }
-    body ||= '<div class="empty">אין אירועים בשבוע הקרוב.</div>';
-  } else {
-    body = upcoming.map(t => taskRow(t, { showDue: true })).join('') || '<div class="empty">אין משימות מתוזמנות לחודש הקרוב.</div>';
-    if (noDate.length) body += `<button class="disclosure" data-act="toggle-nodate" aria-expanded="${view.openNoDate}">בלי תאריך (${noDate.length})${icon('chevD')}</button>${view.openNoDate ? noDate.map(t => taskRow(t)).join('') : ''}`;
+  for (let k = 1; k <= 7; k++) {
+    const d = addDays(state.day, k);
+    const evs = eventsOn(d);
+    const tasks = open.filter(t => t.due === ymd(d));
+    if (!evs.length && !tasks.length) continue;
+    const n = daysBetween(new Date(), d);
+    body += `<div class="day-head"><b>${n === 1 ? 'מחר' : n === 2 ? 'מחרתיים' : `יום ${dayName(d)}`}</b><span>${n <= 2 ? `יום ${dayName(d)}, ` : ''}${longDate(d)}</span></div>`;
+    body += evs.map(ev => weekRow(ev, d)).join('');
+    body += tasks.map(t => weekTaskRow(t, d)).join('');
   }
+  body ||= '<div class="empty">שבוע פנוי: אין אירועים או משימות בשבעת הימים הקרובים.</div>';
   return `
-    <section class="sec" aria-label="מה בהמשך">
-      <div class="sec-h ahead-h">
-        <div class="tabs" role="tablist">
-          <button role="tab" data-act="ahead" data-id="week" aria-selected="${tab === 'week'}">עוד השבוע</button>
-          <button role="tab" data-act="ahead" data-id="month" aria-selected="${tab === 'month'}">עוד החודש</button>
-        </div>
-        <span class="count">עד ${longDate(end)}</span>
-      </div>
+    <section class="sec" aria-labelledby="h-week">
+      <div class="sec-h"><h2 id="h-week">עוד השבוע</h2><span class="count">עד ${longDate(addDays(state.day, 7))}</span></div>
       <div class="group mk-${state.settings.marker}">${body}</div>
     </section>`;
+}
+
+function weekTaskRow(t, d) {
+  const r = reminderOf(t.id);
+  return `
+    <div class="task combo wk ${r && sameDay(r.time, d) ? '' : 'untimed'}">
+      ${r && sameDay(r.time, d) ? `<span class="t-time static">${hm(r.time)}</span>` : ''}
+      <button class="check" data-act="toggle" data-id="${t.id}" aria-label="סימון כבוצע: ${esc(t.title)}"><span>${icon('check')}</span></button>
+      <button class="task-main" data-act="task" data-id="${t.id}"><div class="task-title">${esc(t.title)}</div>
+        <div class="task-meta"><span>משימה${state.lists.length > 1 ? ` · ${esc(t.listTitle || '')}` : ''}</span></div></button>
+    </div>`;
 }
 
 function weekRow(ev, d) {
@@ -365,7 +453,7 @@ function tiles() {
     const { dueNow } = taskGroups();
     const tmr = eventsOn(addDays(now, 1)).filter(e => !e.allDay).length;
     out.push(`<button class="tile evening" data-act="wizard-evening">
-      <span class="tile-ic">🌙</span>
+      <span class="tile-ic">${icon('moon')}</span>
       <span class="tile-body"><span class="tile-t">סיכום ערב</span><span class="tile-s" style="display:block">${dueNow.length ? `${dueNow.length} משימות פתוחות` : 'כל המשימות סגורות'} · ${tmr ? `${tmr} אירועים מחר` : 'מחר פנוי'}</span></span>
       <span class="go">${icon('chevL')}</span></button>`);
   }
@@ -377,16 +465,6 @@ function tiles() {
         <span class="tile-s" style="display:block">ארכוב או הפיכה למשימה, בהחלקה</span>
         <span class="avatars">${senders.map(s => `<i style="background:${avatarColor(s)}" title="${esc(s)}">${esc(s.trim()[0] || '?')}</i>`).join('')}</span></span>
       <span class="go">${icon('chevL')}</span></button>`);
-  }
-  const dg = view.digest;
-  if (state.settings.digestEnabled && dg) {
-    out.push(`<a class="tile digest" href="${dg.url}" data-act="digest" data-id="${dg.id}">
-      ${dg.seen ? '' : '<i class="new-dot" aria-label="חדש"></i>'}
-      <span class="tile-ic digest-logo" aria-hidden="true"><svg viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="#3CC4DC"/><path d="M18 18h14a14 14 0 0 1 0 28H18z" fill="#052A31"/><circle cx="46" cy="18" r="5" fill="#FF5A3C"/></svg></span>
-      <span class="tile-body"><span class="tile-t">${dg.seen ? 'דיג׳סט העיצוב' : 'גיליון חדש בדיג׳סט'}</span>
-        <span class="tile-s" style="display:block">${esc(dg.label)} · ${dg.stats?.kept || ''} פריטים</span></span>
-      <span class="digest-thumbs">${dg.top.slice(0, 2).map(t => t.image ? `<img src="${esc(t.image)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()">` : '').join('')}</span>
-    </a>`);
   }
   return out.length ? `<div class="tiles">${out.join('')}</div>` : '';
 }
@@ -408,7 +486,8 @@ export function render() {
     ${hero()}
     <main class="body ${view.slide || ''}">
       ${banners()}
-      ${state.settings.viewMode === 'split' ? eventsSection() + tasksSection() : daySection() + tasksSection({ withToday: false })}
+      ${daySection()}
+      ${aheadSection()}
       ${tiles()}
     </main>
     <div class="minibar ${minibarShown ? 'show' : ''}" aria-hidden="true">
@@ -417,6 +496,7 @@ export function render() {
     </div>`;
   scrollTo(0, y);
   observeHero();
+  playFlip();
 }
 
 let minibarShown = false, io = null;
@@ -440,9 +520,12 @@ export function mountFabs() {
 }
 
 export function bindMain() {
-  document.addEventListener('pointerdown', e => {
-    const h = e.target.closest('[data-grip]');
-    if (h && !h.closest('.sheet, .wizard')) startDrag(e, h);
+  document.addEventListener('pointerdown', e => { if (!e.target.closest('.sheet, .wizard')) armLongPress(e); });
+  document.addEventListener('click', e => { if (swallowClick) { e.stopPropagation(); e.preventDefault(); } }, true);
+  document.addEventListener('contextmenu', e => { if (e.target.closest('.task.combo')) e.preventDefault(); });
+  document.addEventListener('click', e => {
+    const t = e.target.closest('[data-ttime]');
+    if (t) { e.stopPropagation(); pickTime(t.dataset.ttime, t); }
   });
   document.addEventListener('click', e => {
     const b = e.target.closest('[data-act]');
@@ -466,7 +549,6 @@ export function bindMain() {
       case 'today': view.slide = state.day < new Date() ? 'in-left' : 'in-right'; setDay(new Date()); setTimeout(() => { view.slide = ''; }, 400); break;
       case 'toggle-done': view.openDone = !view.openDone; render(); break;
       case 'ahead': view.aheadTab = id; render(); break;
-      case 'view-mode': saveSettings({ viewMode: state.settings.viewMode === 'split' ? 'combined' : 'split' }); break;
       case 'add-menu': openAdd({ kind: 'task' }); break;
       case 'toggle-nodate': view.openNoDate = !view.openNoDate; render(); break;
       case 'login': handlers.login?.(); break;
@@ -478,7 +560,7 @@ export function bindMain() {
   });
   // swipe anywhere on the main screen to change day (RTL: the future is to the left, so swipe right → next day)
   let x0 = null, y0 = null, t0 = 0, horiz = null;
-  const blocked = el => el.closest('.sheet, .wizard, .menu, .scrim, input, textarea, select, .fabs, .tabs, .grip, .dnd');
+  const blocked = el => el.closest('.sheet, .wizard, .menu, .scrim, input, textarea, select, .fabs, .dnd');
   const hintEl = document.createElement('div');
   hintEl.className = 'swipe-hint';
   hintEl.setAttribute('aria-hidden', 'true');
@@ -491,6 +573,7 @@ export function bindMain() {
   }, { passive: true });
   document.addEventListener('touchmove', e => {
     if (x0 == null) return;
+    if (dragging) { x0 = null; hideHint(); return; }
     const dx = e.touches[0].clientX - x0, dy = e.touches[0].clientY - y0;
     if (horiz == null && (Math.abs(dx) > 12 || Math.abs(dy) > 12)) horiz = Math.abs(dx) > Math.abs(dy) * 1.4;
     if (!horiz) return;

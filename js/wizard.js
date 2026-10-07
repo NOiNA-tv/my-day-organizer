@@ -37,7 +37,7 @@ function buildDeck(mode, extras) {
     eventsOn(now).filter(e => !e.allDay && e.end > now).sort((a, b) => a.start - b.start).forEach(e => deck.push({ type: 'event', id: e.id }));
     taskGroups(startOfDay(now)).dueNow.filter(t => !snoozedUntil(t.id)).forEach(t => deck.push({ type: 'task', id: t.id }));
     if (state.settings.gmailEnabled && state.settings.wizardEmails) state.emails.forEach(e => deck.push({ type: 'email', id: e.id }));
-    if (state.settings.digestEnabled && extras.digest && !extras.digest.seen) deck.push({ type: 'digest', id: extras.digest.id });
+    if (state.settings.digestEnabled && extras.digest && !extras.digest.seen && extras.digest.id === ymd(now)) deck.push({ type: 'digest', id: extras.digest.id });
   } else if (mode === 'evening') {
     taskGroups(startOfDay(now)).dueNow.filter(t => !snoozedUntil(t.id)).forEach(t => deck.push({ type: 'task', id: t.id }));
     eventsOn(addDays(now, 1)).filter(e => !e.allDay).forEach(e => deck.push({ type: 'preview', id: e.id }));
@@ -134,7 +134,7 @@ function welcome() {
   const lines = evening
     ? [['🗂️', nTask ? `${nTask} משימות שנשארו פתוחות` : 'כל המשימות של היום סגורות'], ['📅', nPrev ? `${nPrev} אירועים מחכים מחר` : 'מחר היומן פנוי']]
     : [['📅', nEv ? `${nEv} אירועים עוד לפניך` : 'אין עוד אירועים היום'], ['✅', nTask ? `${nTask} משימות להיום` : 'אין משימות להיום'], ...(nMail ? [['✉️', `${nMail} מיילים לטיפול`]] : []),
-      ...(W.deck.some(d => d.type === 'digest') ? [['📰', 'גיליון חדש בדיג׳סט']] : [])];
+      ...(W.deck.some(d => d.type === 'digest') ? [['¶', 'גיליון חדש בתלקיט']] : [])];
   const tw = evening && w ? w.tomorrow : null;
   return `
     ${topbar()}
@@ -275,8 +275,8 @@ function cardBody(item) {
   if (item.type === 'digest') {
     const d = W.extras.digest;
     return `
-      <div class="c-kind"><i style="background:#9a5cf0"></i>דיג׳סט עיצוב · ${esc(d.label)}</div>
-      ${d.top[0]?.image ? `<img class="c-img" src="${esc(d.top[0].image)}" alt="" referrerpolicy="no-referrer" onerror="this.remove()">` : ''}
+      <div class="c-kind"><span class="pilcrow">¶</span>התלקיט · ${esc(d.label)}</div>
+      ${d.cover ? `<img class="c-img" src="${esc(d.cover)}" alt="" referrerpolicy="no-referrer" onerror="this.remove()">` : ''}
       <h3 class="c-title">גיליון חדש מחכה לך</h3>
       <div class="c-desc">${esc(d.intro)}</div>
       <ul class="c-bul">${d.top.map(x => `<li>${esc(x.title)}</li>`).join('')}</ul>`;

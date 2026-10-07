@@ -403,9 +403,6 @@ export function openSettings({ onLogin } = {}) {
           </div>`).join('')}
       </div>
 
-      <div class="field-label">${icon('list')}תצוגת היום</div>
-      <div class="seg">${[['combined', 'רשימה אחת'], ['split', 'יומן ומשימות בנפרד']].map(([v, l]) => `<button type="button" data-viewmode="${v}" aria-pressed="${(s.viewMode || 'combined') === v}">${l}</button>`).join('')}</div>
-
       <div class="field-label">${icon('bell')}תזכורות</div>
       <div class="set-row"><div class="grow"><b>תזכורת לדוגמה</b><small>יוצר אירוע קצר ביומן הראשי בעוד 2 דקות, עם תזכורת דקה לפני. כך תשמע ותראה בדיוק איך תזכורת מגיעה לטלפון.</small></div>
         <button class="btn sm" data-test-reminder>${icon('bellRing')}שליחה</button></div>
@@ -420,9 +417,9 @@ export function openSettings({ onLogin } = {}) {
         ${state.labels.length ? `<div class="field-label">תוויות שיוצעו בארכוב מייל בלי תווית</div>
           <div class="seg">${state.labels.map(l => `<button type="button" data-label-toggle="${esc(l.name)}" aria-pressed="${!(s.hiddenLabels || []).includes(l.name)}">${esc(l.name)}</button>`).join('')}</div>` : ''}` : ''}
 
-      <div class="field-label">${icon('newspaper')}דיג׳סט עיצוב</div>
-      <div class="set-row"><div class="grow"><b>להציג גיליון חדש של הדיג׳סט</b><small>כרטיס במסך הראשי ובאשף, בכל פעם שיוצא גיליון</small></div>
-        <button class="switch" role="switch" aria-checked="${s.digestEnabled}" data-toggle-set="digestEnabled" aria-label="דיג׳סט"></button></div>
+      <div class="field-label"><span class="pilcrow">¶</span>התלקיט</div>
+      <div class="set-row"><div class="grow"><b>להציג את התלקיט בימי ראשון</b><small>כרטיס בראש המסך ובאשף, כשהגיליון השבועי מוכן</small></div>
+        <button class="switch" role="switch" aria-checked="${s.digestEnabled}" data-toggle-set="digestEnabled" aria-label="התלקיט"></button></div>
 
       ${state.lists.length > 1 ? `<div class="field-label">${icon('list')}רשימת ברירת מחדל למשימות חדשות</div>
         <select class="inp" data-key="defaultList">${state.lists.map(l => `<option value="${l.id}" ${l.id === (s.defaultList || state.lists[0].id) ? 'selected' : ''}>${esc(l.title)}</option>`).join('')}</select>` : ''}
