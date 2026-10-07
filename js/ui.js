@@ -100,25 +100,38 @@ function openDigest(card) {
   // a rounded rectangle the shape of the card grows to fill the screen (corners straighten only at the very end)
   const frames = (a, b) => [box(a), { ...box({ ...b, radius: Math.max(a.radius, b.radius) * .6 }), offset: .85 }, box(b)];
   const iframe = ov.querySelector('iframe');
-  let loaded = false, grown = false;
-  const reveal = () => { if (loaded && grown) ov.classList.add('ready'); };
+  const D = 640, EASE = 'cubic-bezier(.5, 0, .2, 1)';
+  // the page cross-fades in while the panel is still growing (not after), so it reads as one move
+  let loaded = false, early = false;
+  const reveal = () => { if (loaded && early) ov.classList.add('ready'); };
   iframe.addEventListener('load', () => { loaded = true; reveal(); });
   setTimeout(() => { loaded = true; reveal(); }, 2500);
+  setTimeout(() => { early = true; reveal(); }, reducedMotion() ? 0 : D * .3);
   Object.assign(ov.style, box(full));
-  const anim = reducedMotion() ? null : ov.animate(frames(from, full), { duration: 620, easing: 'cubic-bezier(.5, 0, .2, 1)' });
-  (anim ? anim.finished : Promise.resolve()).then(() => { grown = true; reveal(); });
+  if (!reducedMotion()) {
+    const f = frames(from, full);
+    ov.animate(f, { duration: D, easing: EASE });
+    // iframes ignore the parent's rounded clip on some phones: round the iframe itself in step
+    iframe.animate(f.map(k => ({ borderRadius: k.borderRadius, offset: k.offset })), { duration: D, easing: EASE });
+    // the card melts into the panel's background over the first part of the growth
+    ov.animate([{ opacity: 0 }, { opacity: 1, offset: .4 }, { opacity: 1 }], { duration: D, easing: 'ease-out' });
+  }
   history.pushState({ digest: true }, '');
   const close = (fromPop = false) => {
     removeEventListener('popstate', onPop);
     if (!fromPop && history.state?.digest) history.back();
     ov.classList.remove('ready');
-    ov.classList.add('closing'); // page fades in 150ms; iframes don't always respect rounded clipping
+    ov.classList.add('closing'); // the page fades out while the panel is already shrinking
     const cr = card.isConnected ? card.getBoundingClientRect() : from;
     const rr = { top: cr.top, left: cr.left, width: cr.width, height: cr.height, radius: 18 };
     const done = () => { ov.remove(); document.documentElement.classList.remove('wiz-open'); };
     if (reducedMotion()) return done();
-    // fade the page out first, then ease the panel back into the card (gentle deceleration, no snap)
-    ov.animate([box(full), { ...box({ ...full, radius: 18 }), offset: .12 }, box(rr)], { duration: 600, delay: 170, easing: 'cubic-bezier(.45, 0, .2, 1)', fill: 'forwards' }).finished.then(done, done);
+    const C = 640, CE = 'cubic-bezier(.45, 0, .2, 1)';
+    const f = [box(full), { ...box({ ...full, radius: 18 }), offset: .15 }, box(rr)];
+    iframe.animate(f.map(k => ({ borderRadius: k.borderRadius, offset: k.offset })), { duration: C, easing: CE, fill: 'forwards' });
+    // ...and the panel's background melts back into the card at the end
+    ov.animate([{ opacity: 1 }, { opacity: 1, offset: .6 }, { opacity: 0 }], { duration: C, easing: 'ease-in', fill: 'forwards' });
+    ov.animate(f, { duration: C, easing: CE, fill: 'forwards' }).finished.then(done, done);
   };
   const onPop = () => close(true);
   addEventListener('popstate', onPop);

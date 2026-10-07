@@ -767,7 +767,7 @@ select.inp { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.
 .body > .banner:first-child { margin-top: 14px; }
 .dg-view .dg-close { opacity: 0; transition: opacity .25s ease; }
 .dg-view.ready .dg-close { opacity: 1; }
-.dg-view.closing iframe { opacity: 0; visibility: hidden; transition: opacity .15s ease, visibility 0s .15s; }
+.dg-view.closing iframe { opacity: 0; visibility: hidden; transition: opacity .38s ease, visibility 0s .38s; }
 .dg-view.closing .dg-close { opacity: 0; }
 
 /* time picker */
@@ -801,3 +801,11 @@ select.inp { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.
 .body { padding-top: 20px; }
 .body > .sec:first-of-type, .body > .banner:first-child { margin-top: 0; }
 .body > .banner + .sec { margin-top: 20px; }
+
+/* digest: longer cross-fade between the panel background and the page */
+.dg-view iframe { transition: opacity .5s ease; }
+/* toast without an outline */
+.snack { border: 0; }
+/* "עוד השבוע": day titles centred in their light strip, a little taller */
+.day-head { align-items: center; min-height: 44px; padding: 10px 16px; }
+.day-head b, .day-head span { line-height: 1.3; }
