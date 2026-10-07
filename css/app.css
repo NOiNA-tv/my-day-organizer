@@ -755,3 +755,5 @@ select.inp { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.
 .dg-close { top: auto; bottom: calc(env(safe-area-inset-bottom) + 18px); left: 16px; width: 56px; height: 56px; border-radius: 18px; background: rgba(6, 52, 62, .82); box-shadow: 0 8px 24px rgba(0, 0, 0, .3); }
 /* no widget under the date: the list sheet starts where a widget's top edge would be (date + 14px) */
 .hero.bare { padding-bottom: 32px; }
+.dg-view iframe { transition: opacity .2s ease; }
+.dg-close { background: var(--brand); color: #06343e; box-shadow: 0 8px 24px rgba(6, 52, 62, .35); }

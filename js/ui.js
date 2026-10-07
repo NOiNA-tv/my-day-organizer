@@ -114,7 +114,8 @@ function openDigest(card) {
     const rr = card.isConnected ? card.getBoundingClientRect() : from;
     const done = () => { ov.remove(); document.documentElement.classList.remove('wiz-open'); };
     if (reducedMotion()) return done();
-    ov.animate(frames(full, { top: rr.top, left: rr.left, width: rr.width, height: rr.height }), { duration: 420, easing: 'cubic-bezier(.5, 0, .7, .4)', fill: 'forwards' }).finished.then(done, done);
+    // fade the page out first, then ease the panel back into the card (gentle deceleration, no snap)
+    ov.animate(frames(full, { top: rr.top, left: rr.left, width: rr.width, height: rr.height }), { duration: 560, delay: 120, easing: 'cubic-bezier(.32, .72, .24, 1)', fill: 'forwards' }).finished.then(done, done);
   };
   const onPop = () => close(true);
   addEventListener('popstate', onPop);
