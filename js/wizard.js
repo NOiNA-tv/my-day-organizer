@@ -527,13 +527,12 @@ function attachDrag(card, item) {
   let sx = 0, sy = 0, dx = 0, dy = 0, dragging = false, pid = null, axis = null, trail = [];
   const behind = () => card.parentElement?.querySelector('.card.behind');
   card.addEventListener('pointerdown', e => {
-    if (e.target.closest('a, button, input, .c-defer') || card.classList.contains('gone') || card.classList.contains('panel-open')) return;
+    if (e.target.closest('input, textarea, select, .c-defer') || card.classList.contains('gone') || card.classList.contains('panel-open')) return;
     // a card still easing in follows the finger right away instead of fighting its entrance animation
     card.getAnimations().forEach(a => a.cancel());
     card.classList.remove('enter', 'from-back');
     pid = e.pointerId; sx = e.clientX; sy = e.clientY; dx = dy = 0; axis = null; dragging = true;
     trail = [{ x: e.clientX, y: e.clientY, t: e.timeStamp }];
-    card.setPointerCapture(pid);
     card.classList.add('dragging');
   });
   card.addEventListener('pointermove', e => {
@@ -545,6 +544,7 @@ function attachDrag(card, item) {
     if (!axis && Math.hypot(dx, dy) > 10) {
       axis = Math.abs(dx) >= Math.abs(dy) ? 'x' : (dy < 0 && acts.up && !card.classList.contains('scrolls') ? 'up' : 'y');
       if (axis === 'y' && card.classList.contains('scrolls')) { release(); return; } // let the card scroll
+      try { card.setPointerCapture(pid); } catch {} // only now, so a plain tap still reaches its button
     }
     if (!axis) return;
     const tx = axis === 'x' ? dx : axis === 'y' ? dx * .3 : dx * .3;
@@ -582,6 +582,8 @@ function attachDrag(card, item) {
   };
   card.addEventListener('pointerup', end);
   card.addEventListener('pointercancel', end);
+  // a drag that starts on a button (subtask, link) is a swipe, not a press
+  card.addEventListener('click', e => { if (axis) { e.preventDefault(); e.stopPropagation(); axis = null; } }, true);
 }
 
 // ---------- confetti ----------
