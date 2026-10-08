@@ -1,15 +1,16 @@
 name: Daily push (morning & evening)
 
-# Runs every 15 minutes; push/send.mjs decides whether it's time, using the hours in push/schedule.json
-# (Jerusalem time). What was already sent today is remembered on the `push-state` branch.
+# GitHub's own schedule is best-effort (it can skip hours), so an external timer (cron-job.org) also calls
+# workflow_dispatch with kind=auto every 15 minutes. push/send.mjs decides whether anything is due, using the
+# hours in push/schedule.json (Jerusalem time); what was already sent today is kept on the `push-state` branch.
 on:
   schedule:
     - cron: '*/15 * * * *'
   workflow_dispatch:
     inputs:
       kind:
-        description: 'Send now: morning / evening'
-        default: morning
+        description: 'auto (whatever is due) / morning / evening (send now)'
+        default: auto
 
 permissions:
   contents: write

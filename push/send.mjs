@@ -19,13 +19,15 @@ const today = `${parts.year}-${parts.month}-${parts.day}`;
 const nowMin = Number(parts.hour) * 60 + Number(parts.minute);
 const toMin = s => { const [h, m] = s.split(':').map(Number); return h * 60 + m; };
 
-let kind = process.env.KIND || null;
+// KIND: 'morning' / 'evening' = send now; empty or 'auto' = send whatever is due (used by the external timer)
+const forced = ['morning', 'evening'].includes(process.env.KIND) ? process.env.KIND : null;
+let kind = forced;
 if (!kind) {
   for (const k of ['morning', 'evening']) {
     if (!schedule[k]) continue;
     const t = toMin(schedule[k]);
-    // due, not yet sent today, and not more than 2 hours late (GitHub's scheduler can lag)
-    if (nowMin >= t && nowMin < t + 120 && state[k] !== today) { kind = k; break; }
+    // due, not yet sent today, and not more than 3 hours late
+    if (nowMin >= t && nowMin < t + 180 && state[k] !== today) { kind = k; break; }
   }
 }
 if (!kind) { console.log(`Nothing due at ${parts.hour}:${parts.minute}.`); process.exit(0); }
@@ -44,7 +46,7 @@ for (const s of subs) {
   catch (e) { console.error('failed', e.statusCode, e.body); }
 }
 console.log(`sent ${kind} to ${ok}/${subs.length}`);
-if (!process.env.KIND && stateFile) {
+if (stateFile && ok) { // a manual send counts too, so the timer won't repeat it
   state[kind] = today;
   writeFileSync(stateFile, JSON.stringify(state));
   writeFileSync('/tmp/state.changed', '1');
