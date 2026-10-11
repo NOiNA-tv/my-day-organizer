@@ -8,7 +8,7 @@ import {
   emailToTask, dropTask, allTaskRoots, reminderOf, deleteEvent, trashEmail, userLabels, snoozedUntil,
 } from './data.js';
 import { esc, hm, countdown, greeting, dayName, longDate, addDays, ymd, fromYmd, daysBetween, daysLeftLabel, startOfDay, haptic, reducedMotion, relDayLabel } from './util.js';
-import { wmo } from './extras.js';
+import { wmo, outfit } from './extras.js';
 import { openDeferSheet, openTask, navLinks, linkify, reminderText, guestsText, deferOptions, applyDefer } from './sheets.js';
 import { openSheet, closeSheet, paintSheet } from './overlay.js';
 
@@ -145,10 +145,20 @@ function welcome() {
         <span class="wz-wx-ic">${tw ? wmo(tw.code, 1).icon : wx.icon}</span>
         <span class="wz-wx-now">${tw ? `<span class="ltr">${tw.min}°–${tw.max}°</span>` : `${w.now}°`}</span>
         <span class="wz-wx-meta"><b>${tw ? 'מחר' : wx.label}${w.city ? ` · ${esc(w.city)}` : ''}</b>${tw ? wmo(tw.code, 1).label : `<span class="ltr">${w.min}°–${w.max}°</span>`}${(tw ? tw.rain : w.rain) >= 30 ? ` · ☔ ${tw ? tw.rain : w.rain}%` : ''}</span>
+        ${outfitHtml(tw ? w.tomorrow : w.today, !!tw)}
       </div>` : ''}
       <ul class="wz-lines">${lines.map(([e, t], i) => `<li class="wz-in" style="--d:${3 + i}"><span>${e}</span>${t}</li>`).join('')}</ul>
       <button class="wz-cta wz-in" style="--d:${4 + lines.length}" data-w="start" ${W.deck.length ? '' : 'data-empty'}>${W.deck.length ? (evening ? 'בוא נסגור את היום' : 'בוא נתחיל') : 'אין מה לסדר, סגירה'}</button>
     </div>`;
+}
+
+function outfitHtml(d, tomorrow) {
+  const o = outfit(d);
+  if (!o) return '';
+  return `<div class="wz-outfit">
+    <div class="wz-wear"><span>👕</span><div><b>${tomorrow ? 'מחר ללבוש' : 'מה ללבוש'}</b>${o.wear}</div></div>
+    ${o.tips.map(([e, t, k]) => `<div class="wz-tip ${k || ''}"><span>${e}</span>${t}</div>`).join('')}
+  </div>`;
 }
 
 function cardsShell() {

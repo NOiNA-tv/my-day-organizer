@@ -39,10 +39,10 @@ async function cityName(g) {
 }
 
 export async function weather({ force = false } = {}) {
-  const cached = store.get('weather');
+  const cached = store.get('weather2');
   if (!force && cached && Date.now() - cached.at < 30 * 60_000) return cached;
   const g = await position();
-  const u = `https://api.open-meteo.com/v1/forecast?latitude=${g.lat}&longitude=${g.lon}&current=temperature_2m,weather_code,is_day&daily=temperature_2m_max,temperature_2m_min,weather_code,precipitation_probability_max&timezone=auto&forecast_days=2`;
+  const u = `https://api.open-meteo.com/v1/forecast?latitude=${g.lat}&longitude=${g.lon}&current=temperature_2m,weather_code,is_day&daily=temperature_2m_max,temperature_2m_min,weather_code,precipitation_probability_max,precipitation_sum,apparent_temperature_max,apparent_temperature_min,uv_index_max,wind_speed_10m_max,wind_gusts_10m_max&hourly=precipitation_probability&timezone=auto&forecast_days=2`;
   const r = await fetch(u);
   const j = await r.json();
   const w = {
@@ -52,7 +52,20 @@ export async function weather({ force = false } = {}) {
     rain: j.daily.precipitation_probability_max[0],
     tomorrow: { max: Math.round(j.daily.temperature_2m_max[1]), min: Math.round(j.daily.temperature_2m_min[1]), code: j.daily.weather_code[1], rain: j.daily.precipitation_probability_max[1] },
   };
-  store.set('weather', w);
+  // what the day feels like, for the "what to wear" advice
+  const D = j.daily, H = j.hourly || {};
+  const day = k => ({
+    feelMax: Math.round(D.apparent_temperature_max?.[k]), feelMin: Math.round(D.apparent_temperature_min?.[k]),
+    max: Math.round(D.temperature_2m_max[k]), min: Math.round(D.temperature_2m_min[k]),
+    rain: D.precipitation_probability_max?.[k] ?? 0, rainMm: D.precipitation_sum?.[k] ?? 0,
+    uv: D.uv_index_max?.[k] ?? 0, wind: Math.round(D.wind_speed_10m_max?.[k] ?? 0), gusts: Math.round(D.wind_gusts_10m_max?.[k] ?? 0),
+    // first hour (from now on, for today) when rain becomes likely
+    rainFrom: (H.time || []).map((t, i) => [t, H.precipitation_probability[i]])
+      .filter(([t]) => t.startsWith(D.time[k]) && (k > 0 || new Date(t) >= new Date(Date.now() - 36e5)))
+      .find(([, p]) => p >= 50)?.[0]?.slice(11, 16) || '',
+  });
+  w.today = day(0); w.tomorrow = { ...w.tomorrow, ...day(1) };
+  store.set('weather2', w);
   return w;
 }
 
@@ -94,3 +107,25 @@ export async function latestDigest() {
   return idx[0] ? digestIssue(idx[0].id) : null;
 }
 export const markDigestSeen = id => { store.set('digestSeen', id); store.set('digestSeenAll', [...new Set([...(store.get('digestSeenAll') || []), id])]); };
+
+// "What to wear" for a day from weather(): one clothing line plus warnings (rain, sun, wind, heat)
+export function outfit(d) {
+  if (!d || !Number.isFinite(d.feelMax)) return null;
+  const hi = d.feelMax, lo = d.feelMin;
+  const wear =
+    hi >= 30 ? 'בגדים קלילים ונושמים: חולצה קצרה ומכנס קצר' :
+    hi >= 25 ? 'חולצה קצרה, בגד קליל' :
+    hi >= 20 ? 'חולצה קצרה או ארוכה דקה' :
+    hi >= 15 ? 'חולצה ארוכה וסוודר או ז׳קט קל' :
+    hi >= 10 ? 'מעיל וסוודר' : 'מעיל חם, צעיף ושכבות';
+  const tips = [];
+  if (hi - lo >= 8 && lo < 18) tips.push(['🧥', `שכבה נוספת לבוקר ולערב: מרגיש כמו ${lo}° בשעות הקרירות`]);
+  if (d.rain >= 50 || d.rainMm >= 1) tips.push(['☂️', `לקחת מטריה: ${d.rain}% סיכוי לגשם${d.rainFrom ? ` (בערך מ־${d.rainFrom})` : ''}`, 'warn']);
+  else if (d.rain >= 30) tips.push(['🌂', `אולי מטריה קטנה בתיק: ${d.rain}% סיכוי לגשם`]);
+  if (d.uv >= 8) tips.push(['🧴', `UV גבוה מאוד (${Math.round(d.uv)}): קרם הגנה, כובע ומשקפי שמש`, 'warn']);
+  else if (d.uv >= 6) tips.push(['🧴', `UV גבוה (${Math.round(d.uv)}): כדאי להימרח בקרם הגנה`]);
+  if (d.gusts >= 50 || d.wind >= 35) tips.push(['🌬️', `רוחות חזקות, משבים עד ${d.gusts} קמ״ש: עליון שנסגר עד למעלה`, 'warn']);
+  else if (d.gusts >= 38 && hi < 24) tips.push(['🌬️', `רוח ערה (עד ${d.gusts} קמ״ש): עליון דק יעזור`]);
+  if (hi >= 33) tips.push(['💧', 'חם מאוד: לשתות הרבה ולהישאר בצל בצהריים', 'warn']);
+  return { wear, tips };
+}
