@@ -153,10 +153,10 @@ function welcome() {
 }
 
 function outfitHtml(d, tomorrow) {
-  const o = outfit(d);
+  const o = outfit(d, { isToday: !tomorrow });
   if (!o) return '';
   return `<div class="wz-outfit">
-    <div class="wz-wear"><span>👕</span><div><b>${tomorrow ? 'מחר ללבוש' : 'מה ללבוש'}</b>${o.wear}</div></div>
+    <div class="wz-wear"><span>👕</span><div><b>${tomorrow ? 'מחר ללבוש' : 'מה ללבוש'}</b>${o.wear}${o.shoes ? `<small>👟 ${o.shoes}</small>` : ''}</div></div>
     ${o.tips.map(([e, t, k]) => `<div class="wz-tip ${k || ''}"><span>${e}</span>${t}</div>`).join('')}
   </div>`;
 }
