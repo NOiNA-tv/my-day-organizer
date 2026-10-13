@@ -852,3 +852,7 @@ select.inp { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.
 .task.drag-src { opacity: .35; }
 .group.dnd-target { transition: box-shadow .2s; }
 .group.dnd-target.dnd-over { box-shadow: 0 0 0 2px var(--brand); }
+/* week list: empty days only show while dragging, as drop targets */
+.day-head.empty-day { display: none; }
+.group.dnd .day-head.empty-day { display: flex; opacity: .7; }
+.group.week.dnd [data-slot]:not(.drag-src) { transition: transform .22s cubic-bezier(.2, .8, .2, 1); }

@@ -420,10 +420,10 @@ function startDrag(row, x0, y0, pointerId) {
   move({ clientY: y0, pointerId });
 }
 
-// ---------- drag a task from "עוד השבוע" up into the day: it moves to this day, and the spot sets its time ----------
+// ---------- drag a task from "עוד השבוע": into the day list, or to another day / time inside the week list ----------
 function startCrossDrag(row, x0, y0, pointerId) {
-  const group = document.querySelector('.group.combo');
-  if (!group) return;
+  const targets = [document.querySelector('.group.combo'), document.querySelector('.group.week')].filter(Boolean);
+  if (!targets.length) return;
   haptic(15);
   swallowClick = true;
   window.getSelection?.().removeAllRanges();
@@ -436,30 +436,34 @@ function startCrossDrag(row, x0, y0, pointerId) {
   Object.assign(ghost.style, { left: box.left + 'px', top: box.top + 'px', width: box.width + 'px' });
   document.body.append(ghost);
   row.classList.add('drag-src');
-  group.classList.add('dnd', 'dnd-target');
-  const slots = [...group.querySelectorAll('[data-slot]')];
+  targets.forEach(g => g.classList.add('dnd', 'dnd-target'));
   const h = box.height;
-  let i = -1, lastY = y0, raf = 0;
-  const gRect = () => group.getBoundingClientRect();
-  // resting middles in page coordinates, measured once (rows animate while we make room)
-  const mids = slots.map(el => { const r = el.getBoundingClientRect(); return r.top + scrollY + r.height / 2; });
-  const layout = () => slots.forEach((el, k) => { el.style.transform = i >= 0 && k >= i ? `translateY(${h}px)` : ''; });
+  // every drop zone: its rows and their resting middles in page coordinates (measured once, after empty days appear)
+  const zones = targets.map(g => {
+    const slots = [...g.querySelectorAll('[data-slot]')].filter(el => el !== row);
+    return { g, slots, mids: slots.map(el => { const r = el.getBoundingClientRect(); return r.top + scrollY + r.height / 2; }) };
+  });
+  let zone = null, i = -1, lastY = y0, lastX = x0, raf = 0;
+  const layout = () => zones.forEach(z => z.slots.forEach((el, k) => { el.style.transform = z === zone && k >= i ? `translateY(${h}px)` : ''; }));
   const move = ev => {
     if (ev.pointerId !== pointerId && ev.pointerId != null && pointerId != null) return;
-    lastY = ev.clientY;
-    ghost.style.transform = `translate(${ev.clientX - x0}px, ${ev.clientY - y0}px) scale(1.03)`;
-    const g = gRect();
-    let k = -1;
-    if (ev.clientY >= g.top - 30 && ev.clientY <= g.bottom + h) {
-      const docY = ev.clientY + scrollY;
-      k = mids.findIndex(m => docY < m);
-      if (k < 0) k = slots.length;
-      if (k === 0 && slots[0]?.dataset.slot === 'anyhead') k = 1;
+    lastY = ev.clientY; lastX = ev.clientX ?? lastX;
+    ghost.style.transform = `translate(${lastX - x0}px, ${lastY - y0}px) scale(1.03)`;
+    let z = null, k = -1;
+    for (const c of zones) {
+      const r = c.g.getBoundingClientRect();
+      if (lastY >= r.top - 30 && lastY <= r.bottom + 24) { z = c; break; }
     }
-    group.classList.toggle('dnd-over', k >= 0);
-    if (k !== i) { i = k; layout(); haptic(5); }
+    if (z) {
+      const docY = lastY + scrollY;
+      k = z.mids.findIndex(m => docY < m);
+      if (k < 0) k = z.slots.length;
+      const first = z.slots[0]?.dataset.slot;
+      if (k === 0 && (first === 'anyhead' || first === 'dayhead')) k = 1;
+    }
+    zones.forEach(c => c.g.classList.toggle('dnd-over', c === z));
+    if (z !== zone || k !== i) { zone = z; i = k; layout(); haptic(5); }
   };
-  let lastX = x0;
   const scroller = () => {
     const sy = scrollY;
     if (lastY < 110) scrollBy(0, -10); else if (lastY > innerHeight - 110) scrollBy(0, 10);
@@ -467,27 +471,29 @@ function startCrossDrag(row, x0, y0, pointerId) {
     raf = requestAnimationFrame(scroller);
   };
   raf = requestAnimationFrame(scroller);
-  addEventListener('pointermove', ev => { lastX = ev.clientX; }, { signal: (drag.ac = new AbortController()).signal });
   const blockScroll = ev => ev.preventDefault();
   const up = () => {
     cancelAnimationFrame(raf);
-    drag.ac.abort();
     removeEventListener('pointermove', move);
     removeEventListener('pointerup', up);
     removeEventListener('pointercancel', up);
     removeEventListener('touchmove', blockScroll);
     setTimeout(() => { swallowClick = false; }, 50);
     dragging = null;
-    const finish = () => { ghost.remove(); row.classList.remove('drag-src'); group.classList.remove('dnd', 'dnd-target', 'dnd-over'); slots.forEach(el => { el.style.transform = ''; }); };
-    if (i < 0) { // dropped outside the day: glide back home
+    const finish = () => {
+      ghost.remove(); row.classList.remove('drag-src');
+      zones.forEach(z => { z.g.classList.remove('dnd', 'dnd-target', 'dnd-over'); z.slots.forEach(el => { el.style.transform = ''; }); });
+    };
+    if (!zone) { // dropped outside both lists: glide back home
       const a = ghost.animate([{ transform: ghost.style.transform }, { transform: 'none' }], { duration: 260, easing: 'cubic-bezier(.2, .8, .2, 1)' });
       a.finished.then(finish, finish);
       return;
     }
     captureFlip();
+    const { g, slots } = zone, at = i;
     finish();
-    updateTask(id, { due: ymd(state.day) });
-    placeTask(id, slots, i);
+    if (g.classList.contains('combo')) { updateTask(id, { due: ymd(state.day) }); placeTask(id, slots, at); }
+    else placeInWeek(id, slots, at);
   };
   dragging = { id };
   addEventListener('pointermove', move);
@@ -495,6 +501,32 @@ function startCrossDrag(row, x0, y0, pointerId) {
   addEventListener('pointercancel', up);
   addEventListener('touchmove', blockScroll, { passive: false });
   move({ clientX: x0, clientY: y0, pointerId });
+}
+
+// A drop inside the week list: the day comes from the day heading above the spot; right after an event or a
+// timed task → that time (an event's end); otherwise → no time, in that order.
+function placeInWeek(id, list, i) {
+  const before = list.slice(0, i), after = list.slice(i);
+  const head = [...before].reverse().find(el => el.dataset.slot === 'dayhead');
+  if (!head) return render();
+  const day = head.dataset.day;
+  const sameDayEls = els => els.filter(el => el.dataset.day === day && el.dataset.slot !== 'dayhead' && el.dataset.slot !== 'allday');
+  const prev = sameDayEls(before).pop();
+  const t = state.tasks.find(x => x.id === id);
+  if (t && t.due !== day) updateTask(id, { due: day });
+  const timed = prev && (prev.dataset.slot === 'event' || prev.dataset.time);
+  if (!timed) {
+    const ids = [...sameDayEls(before), { dataset: { me: 1 } }, ...sameDayEls(after)]
+      .filter(el => el.dataset.me || (el.dataset.slot === 'task' && !el.dataset.time))
+      .map(el => el.dataset.me ? id : el.dataset.task);
+    state.anyOrder = [...ids, ...state.anyOrder.filter(x => !ids.includes(x))]; saveOrder();
+    if (reminderOf(id)) setTaskReminder(id, null); else render();
+    return;
+  }
+  let at = prev.dataset.slot === 'event' ? new Date(prev.dataset.end) : new Date(prev.dataset.time);
+  if (ymd(at) !== day) { at = fromYmd(day); at.setHours(23, 45, 0, 0); }
+  state.tieOrder[id] = Date.now(); state.anyOrder = state.anyOrder.filter(x => x !== id); saveOrder();
+  setTaskReminder(id, at, { quiet: false });
 }
 
 function placeTask(id, list, i) {
@@ -563,33 +595,39 @@ function tasksSection({ withToday = true } = {}) {
     ${aheadSection(upcoming, noDate)}`;
 }
 
-// "עוד השבוע": the next 7 days, events and tasks together, grouped by day
+// "עוד השבוע": the next 7 days, grouped by day. In each day: tasks without a time, then events and timed tasks by time.
 function aheadSection() {
   const open = state.tasks.filter(t => !t.parent && t.status !== 'completed' && t.due);
-  let body = '';
+  const ord = id => { const i = state.anyOrder.indexOf(id); return i < 0 ? 1e6 : i; };
+  let body = '', any = false;
   for (let k = 1; k <= 7; k++) {
-    const d = addDays(state.day, k);
+    const d = addDays(state.day, k), day = ymd(d);
     const evs = eventsOn(d);
-    const tasks = open.filter(t => t.due === ymd(d));
-    if (!evs.length && !tasks.length) continue;
+    const tasks = open.filter(t => t.due === day);
+    const timeOf = t => { const r = reminderOf(t.id); return r && sameDay(r.time, d) ? r.time : null; };
+    const untimed = tasks.filter(t => !timeOf(t)).sort((x, y) => ord(x.id) - ord(y.id));
+    const line = [...evs.filter(e => !e.allDay).map(e => ({ e, at: e.start })), ...tasks.filter(timeOf).map(t => ({ t, at: timeOf(t) }))]
+      .sort((x, y) => (x.at - y.at) || (x.t ? -1 : 1));
+    const empty = !evs.length && !tasks.length;
+    if (!empty) any = true;
     const n = daysBetween(new Date(), d);
-    body += `<div class="day-head"><b>${n === 1 ? 'מחר' : n === 2 ? 'מחרתיים' : `יום ${dayName(d)}`}</b><span>${n <= 2 ? `יום ${dayName(d)}, ` : ''}${longDate(d)}</span></div>`;
-    body += evs.map(ev => weekRow(ev, d)).join('');
-    body += tasks.map(t => weekTaskRow(t, d)).join('');
+    body += `<div class="day-head ${empty ? 'empty-day' : ''}" data-slot="dayhead" data-day="${day}"><b>${n === 1 ? 'מחר' : n === 2 ? 'מחרתיים' : `יום ${dayName(d)}`}</b><span>${n <= 2 ? `יום ${dayName(d)}, ` : ''}${longDate(d)}</span></div>`;
+    body += evs.filter(e => e.allDay).map(ev => weekRow(ev, d)).join('');
+    body += untimed.map(t => weekTaskRow(t, d, null)).join('');
+    body += line.map(x => x.e ? weekRow(x.e, d) : weekTaskRow(x.t, d, x.at)).join('');
   }
-  body ||= '<div class="empty">שבוע פנוי: אין אירועים או משימות בשבעת הימים הקרובים.</div>';
+  if (!any) body += '<div class="empty">שבוע פנוי: אין אירועים או משימות בשבעת הימים הקרובים.</div>';
   return `
     <section class="sec" aria-labelledby="h-week">
       <div class="sec-h"><h2 id="h-week">עוד השבוע</h2><span class="count">עד ${longDate(addDays(state.day, 7))}</span></div>
-      <div class="group mk-${state.settings.marker}">${body}</div>
+      <div class="group week mk-${state.settings.marker}">${body}</div>
     </section>`;
 }
 
-function weekTaskRow(t, d) {
-  const r = reminderOf(t.id);
+function weekTaskRow(t, d, time) {
   return `
-    <div class="task combo wk ${r && sameDay(r.time, d) ? '' : 'untimed'}" data-task="${t.id}">
-      ${r && sameDay(r.time, d) ? `<span class="t-time static">${hm(r.time)}</span>` : ''}
+    <div class="task combo wk ${time ? '' : 'untimed'}" data-task="${t.id}" data-fk="t${t.id}" data-slot="task" data-day="${ymd(d)}" ${time ? `data-time="${time.toISOString()}"` : ''}>
+      ${time ? `<span class="t-time static">${hm(time)}</span>` : ''}
       <button class="check" data-act="toggle" data-id="${t.id}" aria-label="סימון כבוצע: ${esc(t.title)}"><span>${icon('check')}</span></button>
       <button class="task-main" data-act="task" data-id="${t.id}"><div class="task-title">${esc(t.title)}</div>
         <div class="task-meta"><span>משימה${state.lists.length > 1 ? ` · ${esc(t.listTitle || '')}` : ''}</span></div></button>
@@ -599,7 +637,7 @@ function weekTaskRow(t, d) {
 function weekRow(ev, d) {
   const cal = calById(ev.calId), c = calColor(cal);
   return `
-    <button class="ev wk" style="--c:${c}" data-act="event" data-id="${ev.id}">
+    <button class="ev wk" style="--c:${c}" data-act="event" data-id="${ev.id}" data-fk="w${ev.id}${ymd(d)}" data-slot="${ev.allDay ? 'allday' : 'event'}" data-day="${ymd(d)}" data-start="${ev.start.toISOString()}" data-end="${ev.end.toISOString()}">
       <div class="ev-time">${ev.allDay ? '<small>כל היום</small>' : `${sameDay(ev.start, d) ? hm(ev.start) : '00:00'}<small>${hm(ev.end)}</small>`}</div>
       <div class="ev-main"><i class="ev-bar" style="background:${c}"></i>
         <div class="ev-text"><div class="ev-title">${esc(ev.title)}</div>
