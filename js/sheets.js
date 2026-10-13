@@ -10,6 +10,7 @@ import { voiceSupported, listen, parseHebrew } from './voice.js';
 import { auth } from './auth.js';
 import { pushPanel, loadPushInfo } from './push.js';
 import { openTimePicker } from './timepicker.js';
+import { openDatePicker } from './datepicker.js';
 
 // ---------- shared bits ----------
 export function linkify(raw = '') {
@@ -152,6 +153,18 @@ const listSelect = (key, value) => state.lists.length > 1
   ? `<div class="field-label">${icon('list')}רשימה</div><select class="inp" data-key="${key}">${state.lists.map(l => `<option value="${l.id}" ${l.id === value ? 'selected' : ''}>${esc(l.title)}</option>`).join('')}</select>`
   : '';
 const timeValue = d => d ? hm(d) : '';
+// "היום · יום ד׳, 14 באוקטובר" style label for a due date
+const dueLabel = day => { const d = fromYmd(day), n = daysBetween(new Date(), d); return `${n === 0 ? 'היום · ' : n === 1 ? 'מחר · ' : n === -1 ? 'אתמול · ' : ''}יום ${dayName(d)}, ${longDate(d)}`; };
+// moving a task to another day keeps its reminder's time of day; no date → no reminder
+function setTaskDate(id, day) {
+  const t = state.tasks.find(x => x.id === id); if (!t || t.due === day) return;
+  const r = reminderOf(id);
+  updateTask(id, { due: day });
+  if (!r) return;
+  if (!day) { setTaskReminder(id, null); return; }
+  const at = fromYmd(day); at.setHours(r.time.getHours(), r.time.getMinutes(), 0, 0);
+  setTaskReminder(id, at);
+}
 const reminderBase = t => { const d = t?.due && t.due >= ymd(new Date()) ? fromYmd(t.due) : startOfDay(state.day < startOfDay(new Date()) ? new Date() : state.day); return d; };
 
 // ---------- task sheet ----------
@@ -183,6 +196,10 @@ export function openTask(id) {
       </div>
       <div class="field-label">פרטים</div>
       <textarea class="inp" data-key="notes" placeholder="הערות, קישורים…">${esc(t.notes)}</textarea>
+      <div class="field-label">${icon('calendar')}תאריך</div>
+      <div class="rem-row">
+        <button class="inp time-btn date-btn" data-pick-date>${t.due ? dueLabel(t.due) : 'ללא תאריך'}</button>
+      </div>
       <div class="field-label">${icon('bell')}תזכורת</div>
       <div class="rem-row">
         <button class="inp time-btn" data-pick-rtime>${r ? hm(r.time) : 'בחירת שעה'}</button>
@@ -209,6 +226,15 @@ export function openTask(id) {
         value: r ? hm(r.time) : '',
         onSave: v => { const [h, m] = v.split(':').map(Number); const d = reminderBase(t); d.setHours(h, m, 0, 0); setTaskReminder(id, d, { quiet: false }); setTimeout(paintSheet, 50); },
         onClear: r ? () => { setTaskReminder(id, null); setTimeout(paintSheet, 50); } : null,
+      });
+      return;
+    }
+    if (e.target.closest('[data-pick-date]')) {
+      const t = state.tasks.find(x => x.id === id);
+      openDatePicker({
+        value: t?.due || '', title: 'תאריך המשימה',
+        onPick: day => { setTaskDate(id, day); setTimeout(paintSheet, 50); },
+        onClear: t?.due ? () => { setTaskDate(id, null); setTimeout(paintSheet, 50); } : null,
       });
       return;
     }
