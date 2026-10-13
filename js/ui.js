@@ -2,7 +2,7 @@
 import { icon } from './icons.js';
 import {
   state, eventsOn, taskGroups, progress, nextUp, isToday, calById, calColor, setDay, refresh, toggleTask, APP_PALETTE, snoozedUntil,
-  reminderOf, setTaskReminder, saveOrder, saveSettings,
+  reminderOf, setTaskReminder, saveOrder, saveSettings, updateTask,
 } from './data.js';
 import { reducedMotion, haptic, esc, hm, dayName, longDate, shortDate, addDays, ymd, fromYmd, daysBetween, daysLeftLabel, countdown, sameDay, startOfDay, relDayLabel } from './util.js';
 import { openEvent, openTask, openAdd, openSettings, openDeferMenu, eventTimeText } from './sheets.js';
@@ -350,7 +350,7 @@ function armLongPress(e) {
   let fired = false;
   const cancel = () => { clearTimeout(timer); removeEventListener('pointermove', mv); removeEventListener('pointerup', cancel); removeEventListener('pointercancel', cancel); };
   const mv = ev => { if (!fired && Math.hypot(ev.clientX - x0, ev.clientY - y0) > 8) cancel(); };
-  const timer = setTimeout(() => { fired = true; cancel(); startDrag(row, x0, y0, e.pointerId); }, 380);
+  const timer = setTimeout(() => { fired = true; cancel(); (row.classList.contains('wk') ? startCrossDrag : startDrag)(row, x0, y0, e.pointerId); }, 380);
   addEventListener('pointermove', mv);
   addEventListener('pointerup', cancel);
   addEventListener('pointercancel', cancel);
@@ -391,7 +391,9 @@ function startDrag(row, x0, y0, pointerId) {
     if (k !== i) { i = k; layout(); haptic(5); }
   };
   const scroller = () => {
+    const sy = scrollY;
     if (lastY < 100) scrollBy(0, -8); else if (lastY > innerHeight - 110) scrollBy(0, 8);
+    if (scrollY !== sy) move({ clientY: lastY, pointerId });
     raf = requestAnimationFrame(scroller);
   };
   raf = requestAnimationFrame(scroller);
@@ -416,6 +418,83 @@ function startDrag(row, x0, y0, pointerId) {
   addEventListener('touchmove', blockScroll, { passive: false });
   layout();
   move({ clientY: y0, pointerId });
+}
+
+// ---------- drag a task from "עוד השבוע" up into the day: it moves to this day, and the spot sets its time ----------
+function startCrossDrag(row, x0, y0, pointerId) {
+  const group = document.querySelector('.group.combo');
+  if (!group) return;
+  haptic(15);
+  swallowClick = true;
+  window.getSelection?.().removeAllRanges();
+  const id = row.dataset.task;
+  const drag = {};
+  const box = row.getBoundingClientRect();
+  // a floating copy follows the finger; the original waits, faded, in its place
+  const ghost = row.cloneNode(true);
+  ghost.classList.add('drag-ghost');
+  Object.assign(ghost.style, { left: box.left + 'px', top: box.top + 'px', width: box.width + 'px' });
+  document.body.append(ghost);
+  row.classList.add('drag-src');
+  group.classList.add('dnd', 'dnd-target');
+  const slots = [...group.querySelectorAll('[data-slot]')];
+  const h = box.height;
+  let i = -1, lastY = y0, raf = 0;
+  const gRect = () => group.getBoundingClientRect();
+  // resting middles in page coordinates, measured once (rows animate while we make room)
+  const mids = slots.map(el => { const r = el.getBoundingClientRect(); return r.top + scrollY + r.height / 2; });
+  const layout = () => slots.forEach((el, k) => { el.style.transform = i >= 0 && k >= i ? `translateY(${h}px)` : ''; });
+  const move = ev => {
+    if (ev.pointerId !== pointerId && ev.pointerId != null && pointerId != null) return;
+    lastY = ev.clientY;
+    ghost.style.transform = `translate(${ev.clientX - x0}px, ${ev.clientY - y0}px) scale(1.03)`;
+    const g = gRect();
+    let k = -1;
+    if (ev.clientY >= g.top - 30 && ev.clientY <= g.bottom + h) {
+      const docY = ev.clientY + scrollY;
+      k = mids.findIndex(m => docY < m);
+      if (k < 0) k = slots.length;
+      if (k === 0 && slots[0]?.dataset.slot === 'anyhead') k = 1;
+    }
+    group.classList.toggle('dnd-over', k >= 0);
+    if (k !== i) { i = k; layout(); haptic(5); }
+  };
+  let lastX = x0;
+  const scroller = () => {
+    const sy = scrollY;
+    if (lastY < 110) scrollBy(0, -10); else if (lastY > innerHeight - 110) scrollBy(0, 10);
+    if (scrollY !== sy) move({ clientX: lastX, clientY: lastY, pointerId }); // the page moved under a still finger
+    raf = requestAnimationFrame(scroller);
+  };
+  raf = requestAnimationFrame(scroller);
+  addEventListener('pointermove', ev => { lastX = ev.clientX; }, { signal: (drag.ac = new AbortController()).signal });
+  const blockScroll = ev => ev.preventDefault();
+  const up = () => {
+    cancelAnimationFrame(raf);
+    drag.ac.abort();
+    removeEventListener('pointermove', move);
+    removeEventListener('pointerup', up);
+    removeEventListener('pointercancel', up);
+    removeEventListener('touchmove', blockScroll);
+    setTimeout(() => { swallowClick = false; }, 50);
+    dragging = null;
+    const finish = () => { ghost.remove(); row.classList.remove('drag-src'); group.classList.remove('dnd', 'dnd-target', 'dnd-over'); slots.forEach(el => { el.style.transform = ''; }); };
+    if (i < 0) { // dropped outside the day: glide back home
+      const a = ghost.animate([{ transform: ghost.style.transform }, { transform: 'none' }], { duration: 260, easing: 'cubic-bezier(.2, .8, .2, 1)' });
+      a.finished.then(finish, finish);
+      return;
+    }
+    captureFlip();
+    finish();
+    updateTask(id, { due: ymd(state.day) });
+    placeTask(id, slots, i);
+  };
+  dragging = { id };
+  addEventListener('pointermove', move);
+  addEventListener('pointerup', up);
+  addEventListener('pointercancel', up);
+  addEventListener('touchmove', blockScroll, { passive: false });
+  move({ clientX: x0, clientY: y0, pointerId });
 }
 
 function placeTask(id, list, i) {
@@ -509,7 +588,7 @@ function aheadSection() {
 function weekTaskRow(t, d) {
   const r = reminderOf(t.id);
   return `
-    <div class="task combo wk ${r && sameDay(r.time, d) ? '' : 'untimed'}">
+    <div class="task combo wk ${r && sameDay(r.time, d) ? '' : 'untimed'}" data-task="${t.id}">
       ${r && sameDay(r.time, d) ? `<span class="t-time static">${hm(r.time)}</span>` : ''}
       <button class="check" data-act="toggle" data-id="${t.id}" aria-label="סימון כבוצע: ${esc(t.title)}"><span>${icon('check')}</span></button>
       <button class="task-main" data-act="task" data-id="${t.id}"><div class="task-title">${esc(t.title)}</div>
