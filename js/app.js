@@ -7,6 +7,7 @@ import { applyTheme } from './sheets.js';
 import { openWizard, wizardOpen } from './wizard.js';
 import { weather, latestDigest, markDigestSeen } from './extras.js';
 import { loadPushInfo } from './push.js';
+import { loadHabits } from './habits.js';
 
 const back = auth.handleRedirect();
 const params = new URLSearchParams(location.search);
@@ -44,6 +45,7 @@ async function boot() {
 
   await Promise.all([init(), loadWeather(false), latestDigest().then(d => { view.digest = d; }), loadPushInfo()]);
   render();
+  loadHabits();
 
   if (back?.error && back.error !== 'state_mismatch' && auth.everConnected) {
     console.warn('google auth', back.error);
@@ -59,7 +61,7 @@ async function boot() {
     if (document.hidden) { hiddenAt = Date.now(); return; }
     if (Date.now() - hiddenAt < 5 * 60_000) return;
     if (state.mode === 'live' && !auth.token) return auth.login({ silent: true });
-    refresh(); loadWeather(false);
+    refresh().then(loadHabits); loadWeather(false);
   });
 
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(e => console.warn('sw', e));

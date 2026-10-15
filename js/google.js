@@ -22,6 +22,8 @@ async function g(url, opts = {}) {
 
 const CAL = 'https://www.googleapis.com/calendar/v3';
 const TASKS = 'https://tasks.googleapis.com/tasks/v1';
+const SHEETS = 'https://sheets.googleapis.com/v4/spreadsheets';
+const DRIVE = 'https://www.googleapis.com/drive/v3/files';
 const GMAIL = 'https://gmail.googleapis.com/gmail/v1/users/me';
 
 const qs = o => new URLSearchParams(Object.entries(o).filter(([, v]) => v != null && v !== '')).toString();
@@ -38,7 +40,7 @@ function normEvent(e, cal) {
     id: e.id, calId: cal.id, title: e.summary || '(ללא כותרת)', start, end, allDay,
     location: e.location || '', description: e.description || '', htmlLink: e.htmlLink,
     reminder, reminders, reminderIsDefault, snoozeFor: e.extendedProperties?.private?.mdSnooze || null,
-    taskRef: e.extendedProperties?.private?.mdTask || null,
+    taskRef: e.extendedProperties?.private?.mdTask || null, habitRef: e.extendedProperties?.private?.mdHabit || null,
     attachments: (e.attachments || []).map(a => ({ title: a.title || 'קובץ', url: a.fileUrl, icon: a.iconLink || '' })),
     guests: (e.attendees || []).filter(a => !a.resource).map(a => ({ name: a.displayName || a.email, email: a.email, self: !!a.self, status: a.responseStatus })),
     canEdit: ['owner', 'writer'].includes(cal.accessRole),
@@ -106,7 +108,7 @@ export const google = {
     await g(`${CAL}/calendars/${encodeURIComponent(ev.calId)}/events/${ev.id}`, { method: 'PATCH', body: JSON.stringify(body) });
   },
 
-  async createEvent({ calId, title, start, end, allDay, location, description, reminder, snoozeFor, taskRef }) {
+  async createEvent({ calId, title, start, end, allDay, location, description, reminder, snoozeFor, taskRef, habitRef, rrule }) {
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
     const body = {
       summary: title, location, description,
@@ -119,6 +121,8 @@ export const google = {
     }
     if (snoozeFor) { body.extendedProperties = { private: { mdSnooze: snoozeFor } }; body.transparency = 'transparent'; }
     if (taskRef) { body.extendedProperties = { private: { mdTask: taskRef } }; body.transparency = 'transparent'; }
+    if (habitRef) { body.extendedProperties = { private: { mdHabit: habitRef } }; body.transparency = 'transparent'; }
+    if (rrule) body.recurrence = [`RRULE:${rrule}`];
     return g(`${CAL}/calendars/${encodeURIComponent(calId)}/events`, { method: 'POST', body: JSON.stringify(body) });
   },
 
@@ -191,6 +195,44 @@ export const google = {
     const r = await g(`${GMAIL}/labels`);
     return (r.labels || []).filter(l => l.type === 'user').map(l => ({ id: l.id, name: l.name, color: l.color?.backgroundColor || null }))
       .sort((a, b) => a.name.localeCompare(b.name, 'he'));
+  },
+
+  // ---------- habits: a Google Sheet the app creates and owns (drive.file scope) ----------
+  async findSheet(name) {
+    const q = `name='${name.replace(/'/g, "\\'")}' and mimeType='application/vnd.google-apps.spreadsheet' and trashed=false`;
+    const r = await g(`${DRIVE}?${qs({ q, fields: 'files(id,name,webViewLink)', spaces: 'drive', pageSize: 5 })}`);
+    return r.files?.[0] || null;
+  },
+  async createSheet(name, tabs) {
+    const r = await g(SHEETS, { method: 'POST', body: JSON.stringify({
+      properties: { title: name, locale: 'iw_IL', timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone },
+      sheets: tabs.map(t => ({ properties: { title: t, rightToLeft: true, gridProperties: { frozenRowCount: 1 } } })),
+    }) });
+    return { id: r.spreadsheetId, webViewLink: r.spreadsheetUrl };
+  },
+  async readSheet(id, tabs) {
+    const r = await g(`${SHEETS}/${id}/values:batchGet?${tabs.map(t => `ranges=${encodeURIComponent(`'${t}'!A:Z`)}`).join('&')}`);
+    return Object.fromEntries(tabs.map((t, i) => [t, r.valueRanges?.[i]?.values || []]));
+  },
+  async writeSheet(id, data) { // data: { tab: rows[][] } — replaces each tab's content
+    await g(`${SHEETS}/${id}/values:batchClear`, { method: 'POST', body: JSON.stringify({ ranges: Object.keys(data).map(t => `'${t}'!A:Z`) }) });
+    await g(`${SHEETS}/${id}/values:batchUpdate`, { method: 'POST', body: JSON.stringify({
+      valueInputOption: 'RAW', data: Object.entries(data).map(([t, values]) => ({ range: `'${t}'!A1`, values })),
+    }) });
+  },
+  // events far ahead/behind, titles only — for habits that show up on days with their emoji
+  async eventTitles(cals, from, to) {
+    const lists = await Promise.all(cals.map(async cal => {
+      try {
+        const r = await g(`${CAL}/calendars/${encodeURIComponent(cal.id)}/events?${qs({
+          timeMin: from.toISOString(), timeMax: to.toISOString(), singleEvents: 'true', maxResults: 2500, fields: 'items(id,summary,start,status,extendedProperties)',
+        })}`);
+        return (r.items || []).filter(e => e.status !== 'cancelled' && !e.extendedProperties?.private).map(e => ({
+          id: e.id, title: e.summary || '', start: e.start.date ? fromYmd(e.start.date) : new Date(e.start.dateTime),
+        }));
+      } catch (err) { if (err instanceof AuthError) throw err; return []; }
+    }));
+    return lists.flat();
   },
 
   async trashEmail(e) { await g(`${GMAIL}/messages/${e.id}/trash`, { method: 'POST' }); },

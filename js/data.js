@@ -141,7 +141,7 @@ export function eventsOn(day) {
   const s = startOfDay(day), e = addDays(s, 1);
   const hidden = new Set(state.settings.hiddenCals);
   return state.events
-    .filter(ev => !hidden.has(ev.calId) && !ev.snoozeFor && !ev.taskRef && ev.start < e && ev.end > s)
+    .filter(ev => !hidden.has(ev.calId) && !ev.snoozeFor && !ev.taskRef && !ev.habitRef && ev.start < e && ev.end > s)
     .sort((a, b) => (b.allDay - a.allDay) || (a.start - b.start));
 }
 
@@ -182,7 +182,7 @@ export function progress() {
 
 export function nextUp() {
   const now = new Date();
-  const ev = state.events.filter(e => !e.allDay && !e.snoozeFor && !e.taskRef && e.end > now && !state.settings.hiddenCals.includes(e.calId))
+  const ev = state.events.filter(e => !e.allDay && !e.snoozeFor && !e.taskRef && !e.habitRef && e.end > now && !state.settings.hiddenCals.includes(e.calId))
     .sort((a, b) => a.start - b.start)[0];
   return ev || null;
 }

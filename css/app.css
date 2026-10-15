@@ -871,3 +871,123 @@ select.inp { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.
 .dp-grid button.past { color: var(--ink-3); }
 .dp-grid button.today { box-shadow: inset 0 0 0 1.5px var(--brand); color: var(--brand-deep); }
 .dp-grid button.on { background: var(--brand); color: #06343e; box-shadow: none; }
+
+/* ================= habits ================= */
+/* progress ring: a button with an icon over the count */
+.ring { color: var(--header-ink); padding: 0; border-radius: 50%; cursor: pointer; }
+.ring-label { gap: 3px; justify-items: center; }
+.ring .ring-ic { width: 30px; height: 30px; color: var(--header-ink); stroke-width: 1.9; }
+.ring .ring-num { font-size: 13.5px; font-weight: 700; opacity: .85; }
+.ring:active { transform: scale(.96); }
+.ring.open .track { stroke: color-mix(in srgb, var(--header-ink) 26%, transparent); }
+.body.swap-in > * { animation: swap-in .32s var(--ease-emph); }
+@keyframes swap-in { from { opacity: 0; transform: translateY(10px); } }
+
+/* the day's habit switches */
+.habit-row { display: flex; flex-wrap: wrap; gap: 8px; padding: 14px 14px 12px; border-bottom: 1px solid var(--line); }
+.hchip { display: inline-flex; align-items: center; gap: 7px; height: 40px; padding-inline: 12px 5px; border-radius: 20px; background: var(--surface-2); border: 1.5px solid transparent; font-weight: 600; font-size: 14.5px; transition: background .2s, border-color .2s; }
+.hc-emo { font-size: 18px; line-height: 1; }
+.hc-knob { width: 28px; height: 28px; border-radius: 14px; display: grid; place-items: center; border: 1.5px solid var(--line); background: var(--surface); transition: background .2s, border-color .2s, transform .2s var(--ease-emph); }
+.hc-knob .ic { width: 16px; height: 16px; opacity: 0; color: #06343e; stroke-width: 3; transition: opacity .15s; }
+.hchip.on { background: var(--brand-soft); border-color: color-mix(in srgb, var(--brand) 70%, transparent); }
+.hchip.on .hc-knob { background: var(--brand); border-color: var(--brand); transform: scale(1.04); }
+.hchip.on .hc-knob .ic { opacity: 1; }
+.hchip.count { padding-inline: 5px; gap: 4px; }
+.hchip.count > button { width: 30px; height: 30px; border-radius: 15px; display: grid; place-items: center; background: var(--surface); border: 1.5px solid var(--line); }
+.hchip.count > button .ic { width: 16px; height: 16px; }
+.hchip.count > button:disabled { opacity: .4; }
+.hchip.count .hc-lab { display: inline-flex; align-items: center; gap: 6px; padding-inline: 4px; }
+.hchip.count .hc-lab b { min-width: 18px; text-align: center; font-variant-numeric: tabular-nums; color: var(--brand-deep); font-size: 16px; }
+.hchip.count.on { background: var(--brand-soft); border-color: color-mix(in srgb, var(--brand) 70%, transparent); }
+
+/* dashboard */
+.habits-dash .banner { margin: 0 0 12px; align-items: flex-start; }
+.banner-links { display: flex; gap: 14px; margin-top: 8px; }
+.banner-links a { font-weight: 700; color: var(--brand-deep); }
+.habit-today { margin-bottom: 14px; }
+.habit-today .habit-row { border-bottom: 0; padding-top: 4px; }
+.hlist { display: grid; gap: 10px; }
+.hrow { display: grid; grid-template-columns: 40px 1fr auto auto; align-items: center; gap: 10px; padding: 12px 14px; background: var(--surface); border-radius: 18px; cursor: pointer; position: relative; }
+.hrow::before { content: ''; position: absolute; inset-inline-start: 0; top: 14px; bottom: 14px; width: 3px; border-radius: 0 3px 3px 0; background: transparent; }
+.hrow.lvl-warn::before { background: #f0960f; }
+.hrow.lvl-bad::before { background: #e5484d; }
+.hrow.lvl-good::before { background: #22a774; }
+.hemo { font-size: 26px; line-height: 1; text-align: center; }
+.hmain { min-width: 0; }
+.htitle { font-weight: 700; font-size: 16px; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.htitle small { font-weight: 500; font-size: 12.5px; color: var(--ink-3); }
+.hstat { font-size: 13px; color: var(--ink-2); margin-top: 2px; line-height: 1.35; }
+.lvl-warn .hstat { color: #d07a00; }
+.lvl-bad .hstat { color: var(--danger); }
+.lvl-good .hstat { color: #1e9a69; }
+[data-theme="dark"] .lvl-warn .hstat { color: #ffb44d; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .lvl-warn .hstat { color: #ffb44d; } }
+.hdots { display: flex; align-items: center; gap: 4px; margin-top: 7px; }
+.hdots i { width: 8px; height: 8px; border-radius: 4px; background: var(--line); }
+.hdots i.ok { background: var(--brand); }
+.hdots i.cur { width: 22px; background: linear-gradient(to left, var(--brand) calc(var(--p) * 100%), var(--line) 0); }
+.hbar { height: 6px; border-radius: 3px; background: var(--line); margin-top: 8px; overflow: hidden; max-width: 180px; }
+.hbar i { display: block; height: 100%; width: calc(var(--p) * 100%); background: var(--brand); border-radius: 3px; margin-inline-start: 0; }
+.hbar.warn i { background: #f0960f; } .hbar.bad i { background: #e5484d; }
+.hbars { display: flex; align-items: flex-end; gap: 3px; height: 18px; margin-top: 6px; }
+.hbars i { width: 7px; height: calc(3px + var(--v) * 15px); border-radius: 2px; background: var(--brand); opacity: calc(.35 + var(--v) * .65); }
+.hcount { display: flex; align-items: center; gap: 2px; }
+.hcount button { width: 32px; height: 32px; border-radius: 16px; display: grid; place-items: center; background: var(--surface-2); }
+.hcount button:disabled { opacity: .4; }
+.hcount button .ic { width: 16px; height: 16px; }
+.hcount b { min-width: 24px; text-align: center; font-size: 17px; font-variant-numeric: tabular-nums; }
+.hside { display: flex; gap: 4px; }
+.hmini { height: 34px; min-width: 34px; padding: 0 6px; border-radius: 17px; display: inline-flex; align-items: center; justify-content: center; gap: 3px; color: var(--ink-3); background: var(--surface-2); }
+.hmini .ic { width: 17px; height: 17px; }
+.hmini small { font-size: 11.5px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.hmini.on { color: #06343e; background: var(--brand); }
+.hmini:disabled { opacity: 1; }
+.hgroup { background: var(--surface); border-radius: 18px; padding: 4px 0; }
+.hg-head { display: grid; grid-template-columns: auto 1fr; gap: 10px; align-items: center; padding: 10px 14px 8px; }
+.hg-head .hemo { font-size: 18px; letter-spacing: 1px; max-width: 64px; line-height: 1.25; text-align: start; }
+.hgroup .hrow { background: transparent; border-radius: 0; border-top: 1px solid var(--line); padding: 10px 14px; }
+.hgroup .hrow .hemo { font-size: 22px; }
+.hgroup .hrow .hdots, .hgroup .hrow .hbar { display: none; }
+.hsheet { display: inline-flex; align-items: center; gap: 6px; margin: 16px 4px 0; font-size: 14px; font-weight: 600; color: var(--ink-2); text-decoration: none; }
+.hsheet .ic { width: 16px; height: 16px; }
+
+/* editor */
+.hed-top { display: flex; gap: 10px; align-items: center; margin-top: 12px; }
+.hed-emo { width: 56px; height: 56px; flex: none; border-radius: 18px; background: var(--surface-2); font-size: 30px; display: grid; place-items: center; border: 1.5px solid var(--line); }
+.hed-top .inp { font-size: 18px; font-weight: 600; }
+.hed-freq { display: grid; grid-template-columns: auto 1fr; gap: 10px; align-items: center; }
+.stepper { display: flex; align-items: center; gap: 4px; height: 50px; padding: 0 6px; border-radius: 14px; background: var(--surface-2); }
+.stepper button { width: 36px; height: 36px; border-radius: 18px; display: grid; place-items: center; background: var(--surface); }
+.stepper button .ic { width: 18px; height: 18px; }
+.stepper b { min-width: 28px; text-align: center; font-size: 19px; font-variant-numeric: tabular-nums; }
+.dow-pick { display: flex; gap: 6px; margin-top: 10px; }
+.dow-pick button { flex: 1; aspect-ratio: 1; max-width: 46px; border-radius: 50%; background: var(--surface-2); font-weight: 700; border: 1.5px solid transparent; }
+.dow-pick button[aria-pressed="true"] { background: var(--brand); color: #06343e; }
+.row-lab { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: 15px; flex-wrap: wrap; }
+.row-lab .inp { width: auto; flex: 1; min-width: 120px; }
+
+/* emoji picker, WhatsApp-reaction style */
+.emo-pop { position: fixed; z-index: 120; display: flex; align-items: center; gap: 2px; padding: 6px; border-radius: 30px; background: var(--surface); box-shadow: 0 14px 40px rgba(0, 0, 0, .28); transform: translateY(8px) scale(.9); opacity: 0; transition: transform .2s var(--ease-emph), opacity .15s; transform-origin: right bottom; }
+.emo-pop.show { transform: none; opacity: 1; }
+.emo-pop button[data-emo] { width: 48px; height: 48px; border-radius: 24px; font-size: 29px; display: grid; place-items: center; transition: transform .15s; }
+.emo-pop button[data-emo]:active { transform: scale(1.25); }
+.emo-pop button.on { background: var(--brand-soft); }
+.emo-more { width: 48px; height: 48px; border-radius: 24px; display: grid; place-items: center; background: var(--surface-2); color: var(--ink-2); position: relative; }
+.emo-more .ic:first-child { width: 22px; height: 22px; }
+.emo-more .ic:last-child { position: absolute; width: 13px; height: 13px; bottom: 9px; left: 8px; background: var(--surface-2); border-radius: 50%; stroke-width: 3; }
+.emo-input { position: absolute; opacity: 0; width: 1px; height: 1px; pointer-events: none; }
+.emo-pop.typing .emo-input { position: static; opacity: 1; width: 64px; height: 40px; pointer-events: auto; border: 1.5px solid var(--brand); border-radius: 20px; text-align: center; font-size: 22px; background: var(--surface-2); color: var(--ink); }
+.hsec { font-size: 13px; font-weight: 700; color: var(--ink-3); margin: 8px 6px -2px; }
+.hsec:first-child { margin-top: 0; }
+.hg-emos { font-size: 16px; letter-spacing: -1px; white-space: nowrap; align-self: start; padding-top: 3px; }
+.hrow.member { grid-template-columns: 34px 1fr auto auto; }
+.hrow.member .htitle { font-size: 15px; font-weight: 600; }
+/* habits inside the wizard card */
+.c-kind .ic { width: 18px; height: 18px; color: var(--brand-deep); }
+.wz-hlist { gap: 8px; margin-top: 6px; }
+.wz-hlist .hrow, .wz-hlist .hgroup { background: var(--surface-2); }
+.wz-hlist .hgroup .hrow { background: transparent; }
+.wz-hlist .hrow { grid-template-columns: 34px 1fr auto auto; padding: 10px 12px; gap: 8px; }
+.wz-hlist .hemo { font-size: 23px; }
+.wz-hlist .htitle { font-size: 15px; }
+.wz-hlist .htitle small { display: none; }

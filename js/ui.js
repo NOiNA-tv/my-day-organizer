@@ -11,20 +11,27 @@ import { DIGEST_URL } from './config.js';
 import { auth } from './auth.js';
 import { openTimePicker } from './timepicker.js';
 import { store } from './util.js';
+import { dayHabits, habitCounts, habitsDashboard } from './habitui.js';
 
-export const view = { weather: null, digest: null, openDone: false, openNoDate: false };
+export const view = { weather: null, digest: null, openDone: false, openNoDate: false, habitsOpen: false };
 let handlers = {};
 export const setHandlers = h => { handlers = h; };
 
 // ---------- header ----------
+// today's progress (events, tasks and habits). Tapping it opens the habits dashboard; tapping again closes it.
 function ring(p) {
-  const C = 2 * Math.PI * 40;
+  const C = 2 * Math.PI * 40, open = view.habitsOpen;
   return `
-    <div class="ring" role="img" aria-label="הושלמו ${p.done} מתוך ${p.total} פריטים להיום">
+    <button class="ring ${open ? 'open' : ''}" data-act="habits" aria-pressed="${open}" aria-label="${open ? 'חזרה ליום' : `הרגלים · הושלמו ${p.done} מתוך ${p.total} להיום`}">
       <svg viewBox="0 0 92 92"><circle class="track" cx="46" cy="46" r="40" fill="none" stroke-width="8"/>
         <circle class="val" cx="46" cy="46" r="40" fill="none" stroke-width="8" stroke-linecap="round" stroke-dasharray="${C}" stroke-dashoffset="${C * (1 - p.pct)}" ${p.done ? '' : 'opacity="0"'}/></svg>
-      <div class="ring-label"><span class="ring-num">${p.done}/${p.total}</span><span class="ring-sub">${p.total && p.done === p.total ? 'הכול בוצע' : 'בוצעו'}</span></div>
-    </div>`;
+      <span class="ring-label">${icon(open ? 'arrowR' : 'sprout', 'ring-ic')}<span class="ring-num">${p.done}/${p.total}</span></span>
+    </button>`;
+}
+function dayProgress() {
+  const p = progress(), h = habitCounts();
+  const done = p.done + h.done, total = p.total + h.total;
+  return { done, total, pct: total ? done / total : 0 };
 }
 
 function nextWidget() {
@@ -175,7 +182,7 @@ function hero() {
       <div class="day-row ${view.slide || ''}">
         <h1 class="day-name">${dayName(d)}</h1>
         <div class="date-text">${longDate(d)}${today ? '' : ` · <span class="rel">${relLabel(d)}</span>`}</div>
-        <div class="day-side">${today ? ring(progress()) : `<button class="back-today" data-act="today"><svg viewBox="0 0 92 92" aria-hidden="true"><circle cx="46" cy="46" r="40" fill="none" stroke-width="8" stroke-dasharray="3 13.755" stroke-linecap="round"/></svg><span class="bt-in">${icon(d < new Date() ? 'arrowL' : 'arrowR')}<span>חזרה<br>להיום</span></span></button>`}</div>
+        <div class="day-side">${today ? ring(dayProgress()) : `<button class="back-today" data-act="today"><svg viewBox="0 0 92 92" aria-hidden="true"><circle cx="46" cy="46" r="40" fill="none" stroke-width="8" stroke-dasharray="3 13.755" stroke-linecap="round"/></svg><span class="bt-in">${icon(d < new Date() ? 'arrowL' : 'arrowR')}<span>חזרה<br>להיום</span></span></button>`}</div>
       </div>
       ${widgets}
     </header>`;
@@ -267,6 +274,7 @@ function daySection() {
         <button class="icon-btn" data-act="add-menu" aria-label="הוספה">${icon('plus')}</button></div>
       <div class="group combo mk-${state.settings.marker}">
         ${allDay.length ? `<div class="allday">${allDay.map(e => `<button class="ad-chip" data-act="event" data-id="${e.id}">${e.birthday ? '<span class="cake">🎂</span>' : `<i style="background:${calColor(calById(e.calId))}"></i>`}${esc(e.title)}</button>`).join('')}</div>` : ''}
+        ${dayHabits(day)}
         <div class="zone-h ${anyTasks.length ? '' : 'empty'}" data-slot="anyhead">${icon('check')}משימות בלי שעה</div>
         ${anyTasks.map(t => comboTaskRow(t, null)).join('')}
         <div class="zone-h ${line.length ? '' : 'empty'}" data-slot="tlhead">${icon('calendar')}לפי שעה</div>
@@ -687,11 +695,11 @@ export function render() {
   const y = scrollY;
   app.innerHTML = `
     ${hero()}
-    <main class="body ${view.slide || ''}">
-      ${banners()}
+    <main class="body ${view.slide || ''} ${view.swap || ''}">
+      ${view.habitsOpen && isToday() ? habitsDashboard() : `${banners()}
       ${daySection()}
       ${aheadSection()}
-      ${tiles()}
+      ${tiles()}`}
     </main>
     <div class="minibar ${minibarShown ? 'show' : ''}" aria-hidden="true">
       <b>${dayName(state.day)}</b><span>${longDate(state.day)}</span>
@@ -765,6 +773,7 @@ export function bindMain() {
       case 'add-event': openAdd({ kind: 'event' }); break;
       case 'settings': openSettings({ onLogin: handlers.login }); break;
       case 'refresh': refresh(); handlers.weather?.(true); break;
+      case 'habits': toggleHabitsView(); break;
       case 'today': changeDay(new Date(), state.day < new Date() ? 1 : -1); break;
       case 'toggle-done': view.openDone = !view.openDone; render(); break;
       case 'ahead': view.aheadTab = id; render(); break;
@@ -825,9 +834,20 @@ export function goDay(n) {
 }
 
 // old content drifts on in the swipe direction and fades, then the new day slides in from the other side
+// the content on the dark sheet cross-fades between the day and the habits dashboard
+function toggleHabitsView() {
+  haptic(8);
+  const kids = [...document.querySelectorAll('.body > *')];
+  const flip = () => { view.habitsOpen = !view.habitsOpen; view.swap = 'swap-in'; render(); setTimeout(() => { view.swap = ''; }, 450); };
+  if (reducedMotion() || !kids.length) return flip();
+  kids.forEach(el => el.animate([{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'translateY(10px)' }], { duration: 150, easing: 'ease-in', fill: 'forwards' }));
+  setTimeout(flip, 140);
+}
+
 function changeDay(target, dir) {
   if (changeDay.busy) return;
   const go = () => {
+    view.habitsOpen = false;
     changeDay.busy = false;
     view.slide = dir > 0 ? 'in-left' : 'in-right';
     markSheet();

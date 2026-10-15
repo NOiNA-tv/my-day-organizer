@@ -11,6 +11,8 @@ import { esc, hm, countdown, greeting, dayName, longDate, addDays, ymd, fromYmd,
 import { wmo, outfit } from './extras.js';
 import { openDeferSheet, openTask, navLinks, linkify, reminderText, guestsText, deferOptions, applyDefer } from './sheets.js';
 import { openSheet, closeSheet, paintSheet } from './overlay.js';
+import { habitList, onHabitChange, habitCounts } from './habitui.js';
+import { H } from './habits.js';
 
 let W = null; // live wizard instance
 
@@ -19,6 +21,7 @@ const NEXT = ['next', 'הבא', 'arrowR'];
 const ACTIONS = {
   event: { left: ['next', 'הבא', 'arrowL'], right: NEXT, up: ['next', 'הבא', 'arrowUp'], buttons: { up: NEXT } },
   preview: { left: ['next', 'הבא', 'arrowL'], right: NEXT, up: ['next', 'הבא', 'arrowUp'], buttons: { up: NEXT } },
+  habits: { left: ['next', 'הבא', 'arrowL'], right: NEXT, up: ['next', 'הבא', 'arrowUp'], buttons: { up: NEXT } },
   task: { left: ['defer', 'לדחות', 'snooze'], up: ['done', 'בוצע', 'check'], right: ['keep', 'נשאר להיום', 'arrowR'] },
   email: { left: ['archive', 'ארכיון', 'archive'], up: ['totask', 'למשימה', 'list'], right: ['next', 'דלג', 'arrowR'] },
   digest: { left: ['next', 'אחר כך', 'arrowL'], up: ['open', 'לקרוא', 'newspaper'], right: ['next', 'אחר כך', 'arrowR'] },
@@ -33,6 +36,7 @@ const TINT = {
 function buildDeck(mode, extras) {
   const now = new Date();
   const deck = [];
+  if ((mode === 'morning' || mode === 'evening') && H.list.length) deck.push({ type: 'habits', id: 'habits' });
   if (mode === 'morning') {
     eventsOn(now).filter(e => !e.allDay && e.end > now).sort((a, b) => a.start - b.start).forEach(e => deck.push({ type: 'event', id: e.id }));
     taskGroups(startOfDay(now)).dueNow.filter(t => !snoozedUntil(t.id)).forEach(t => deck.push({ type: 'task', id: t.id }));
@@ -85,6 +89,8 @@ export function openWizard(mode, origin, extras = {}) {
   a.finished.then(() => { el.classList.add('settled'); origin?.classList.remove('launching'); }).catch(() => {});
 }
 
+onHabitChange(() => { if (W && W.phase === 'cards' && W.deck[W.i]?.type === 'habits') repaintTop(); });
+
 function onPop() { if (W && !document.querySelector('.sheet')) closeWizard(true); }
 
 export function closeWizard(fromPop = false) {
@@ -134,7 +140,8 @@ function welcome() {
   const lines = evening
     ? [['🗂️', nTask ? `${nTask} משימות שנשארו פתוחות` : 'כל המשימות של היום סגורות'], ['📅', nPrev ? `${nPrev} אירועים מחכים מחר` : 'מחר היומן פנוי']]
     : [['📅', nEv ? `${nEv} אירועים עוד לפניך` : 'אין עוד אירועים היום'], ['✅', nTask ? `${nTask} משימות להיום` : 'אין משימות להיום'], ...(nMail ? [['✉️', `${nMail} מיילים לטיפול`]] : []),
-      ...(W.deck.some(d => d.type === 'digest') ? [['¶', 'גיליון חדש בתלקיט']] : [])];
+      ...(W.deck.some(d => d.type === 'digest') ? [['¶', 'גיליון חדש בתלקיט']] : []),
+      ...(habitCounts(now).total ? [['🌱', `${habitCounts(now).total} הרגלים להיום`]] : [])];
   const tw = evening && w ? w.tomorrow : null;
   return `
     ${topbar()}
@@ -208,7 +215,7 @@ const actBtn = (dir, [act, label, ic], main = false) =>
 
 // gesture legend (only where directions mean different things)
 const hint = item => {
-  if (item.type === 'event' || item.type === 'preview') return '';
+  if (item.type === 'event' || item.type === 'preview' || item.type === 'habits') return '';
   const a = ACTIONS[item.type];
   const parts = [a.left && `← ${a.left[1]}`, a.up && `↑ ${a.up[1]}`, a.right && `${a.right[1]} →`].filter(Boolean);
   return `<div class="c-hint">${parts.map(p => `<span>${p}</span>`).join('')}</div>`;
@@ -216,6 +223,14 @@ const hint = item => {
 
 function cardBody(item) {
   const now = new Date();
+  if (item.type === 'habits') {
+    const c = habitCounts(now);
+    return `
+      <div class="c-kind">${icon('sprout')}הרגלים</div>
+      <h3 class="c-title">${W.mode === 'evening' ? 'מה הספקת היום?' : 'מה בתוכנית היום?'}</h3>
+      <p class="c-desc">${c.done}/${c.total} מההרגלים של היום סומנו. ${W.mode === 'evening' ? 'מסמנים מה נעשה,' : 'הנעץ 📌 מוסיף הרגל למסך הראשי להיום,'} והפעמון קובע תזכורת.</p>
+      <div class="hlist wz-hlist">${habitList({ wizard: true })}</div>`;
+  }
   if (item.type === 'event' || item.type === 'preview') {
     const ev = state.events.find(e => e.id === item.id);
     if (!ev) return '<p class="c-desc">האירוע הוסר</p>';

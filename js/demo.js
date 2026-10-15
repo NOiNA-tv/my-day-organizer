@@ -24,6 +24,9 @@ let events = [
   { calId: 'me', title: 'יום הולדת לנועה', start: at(0, 0), end: at(1, 0), allDay: true, birthday: true },
   { calId: 'work', title: 'מסירת אנימטיק ללקוח', start: at(1, 10), end: at(1, 11) },
   { calId: 'me', title: 'מספרה', start: at(1, 17, 30), end: at(1, 18, 15), location: 'דיזנגוף 150, תל אביב' },
+  { calId: 'me', title: '🎬 סרט עם רוני', start: at(0, 21, 30), end: at(0, 23, 30), location: 'סינמטק תל אביב' },
+  { calId: 'me', title: '🎭 הצגה בקאמרי', start: at(4, 20), end: at(4, 22), location: 'תיאטרון הקאמרי' },
+  { calId: 'me', title: '🦷 שיננית', start: at(23, 9), end: at(23, 9, 45), location: 'מרפאת שיניים' },
 ].map(e => ({
   id: uid(), allDay: false, birthday: false, location: '', description: '', meet: '', snoozeFor: null, taskRef: null, attachments: [], guests: [],
   reminders: cals.find(c => c.id === e.calId).defaultReminders.map(r => r.minutes), reminder: cals.find(c => c.id === e.calId).defaultReminders[0]?.minutes ?? null,
@@ -97,6 +100,7 @@ export const demo = {
   },
   async moveTask(task, listId) { const x = tasks.find(y => y.id === task.id); if (x) { x.listId = listId; x.listTitle = lists.find(l => l.id === listId)?.title; } tasks.filter(y => y.parent === task.id).forEach(y => { y.listId = listId; }); return task.id; },
   async moveEvent(ev, { start, end, title }) { const e = events.find(x => x.id === ev.id); if (!e) return; if (start) { e.start = start; e.end = end; } if (title) e.title = title; },
+  async eventTitles(cs, from, to) { const ids = new Set(cs.map(c => c.id)); return events.filter(e => ids.has(e.calId) && !e.taskRef && !e.habitRef && e.start >= from && e.start < to).map(e => ({ id: e.id, title: e.title, start: e.start })); },
   async deleteTask(task) { tasks = tasks.filter(x => x.id !== task.id && x.parent !== task.id); },
   async emails() { await wait(); return emails.map(e => ({ ...e })); },
   async labels() { return [{ id: 'Label_1', name: 'לקוחות', color: '#16a765' }, { id: 'Label_2', name: 'שנקר', color: '#a479e2' }, { id: 'Label_3', name: 'חשבוניות', color: '#ffad47' }]; },
