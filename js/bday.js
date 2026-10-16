@@ -28,7 +28,7 @@ export function waDigits(phone) {
   return d.length >= 9 ? d : '';
 }
 const pretty = phone => { const d = waDigits(phone); return d.startsWith('972') ? '0' + d.slice(3).replace(/(\d{2})(\d{3})(\d+)/, '$1-$2-$3') : '+' + d; };
-const waLink = (phone, name) => `https://wa.me/${waDigits(phone)}?text=${encodeURIComponent(`מזל טוב${name ? ` ${name.split(' ')[0]}` : ''}! 🎂🎉`)}`;
+const waLink = (phone, name) => `https://wa.me/${waDigits(phone)}?text=${encodeURIComponent(`מלאאאן מזל טוב${name ? `, ${name.split(' ')[0]}` : ''}!\n✨🎉🥳🎂🎊🎈`)}`;
 
 const cache = new Map(); // key → { name, phones } | null
 async function lookup(ev) {
