@@ -13,6 +13,7 @@ import { openDeferSheet, openTask, navLinks, linkify, reminderText, guestsText, 
 import { openSheet, closeSheet, paintSheet } from './overlay.js';
 import { habitList, onHabitChange, habitCounts } from './habitui.js';
 import { H } from './habits.js';
+import { burst } from './fx.js';
 
 let W = null; // live wizard instance
 
@@ -501,7 +502,7 @@ function emailTaskDrawer(item) {
 function apply(act, item) {
   if (!W) return;
   switch (act) {
-    case 'done': toggleTask(item.id, { silent: true }); record(item, () => toggleTask(item.id, { silent: true }), 'done'); break;
+    case 'done': burst(innerWidth / 2, innerHeight * .4, { emoji: '✅', big: true }); toggleTask(item.id, { silent: true }); record(item, () => toggleTask(item.id, { silent: true }), 'done'); break;
     case 'archive': {
       const e = state.emails.find(x => x.id === item.id);
       archiveEmail(item.id, { silent: true });

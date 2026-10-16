@@ -1052,3 +1052,17 @@ select.inp { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.
 .hround:active { transform: scale(.94); }
 .menu { max-height: min(60vh, 440px); overflow-y: auto; overscroll-behavior: contain; }
 .wz-hadd { margin-top: 12px; width: 100%; justify-content: center; }
+
+/* celebration layer */
+.fx-layer { position: fixed; inset: 0; pointer-events: none; z-index: 200; overflow: hidden; }
+.fx-bit { position: absolute; width: 9px; height: 9px; border-radius: 2px; will-change: transform, opacity; }
+.fx-bit.rd { border-radius: 50%; width: 8px; height: 8px; }
+.fx-bit.ln { width: 4px; height: 13px; border-radius: 2px; }
+.fx-emo { position: absolute; font-size: 24px; line-height: 1; font-style: normal; will-change: transform, opacity; }
+.fx-wave { position: absolute; width: 40px; height: 40px; border-radius: 50%; border: 3px solid var(--brand); }
+/* a period goal met (e.g. gym 3/3): the switch turns green */
+.hchip.goal.on { background: color-mix(in srgb, #22c08a 20%, var(--surface-2)); border-color: color-mix(in srgb, #22c08a 75%, transparent); }
+.hchip.goal.on .hc-knob { background: #22c08a; border-color: #22c08a; }
+.hchip.goal.on .hc-knob .ic { color: #fff; }
+.hc-meta.good { color: #fff; background: #22c08a; }
+.hchip.on .hc-meta.good { background: #22c08a; color: #fff; }

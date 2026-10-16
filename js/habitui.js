@@ -7,6 +7,7 @@ import {
 } from './habits.js';
 import { suggestEmojis } from './emoji.js';
 import { statsSection } from './habitstats.js';
+import { burst, queueFx } from './fx.js';
 import { openSheet, paintSheet, closeSheet, openMenu } from './overlay.js';
 import { openTimePicker } from './timepicker.js';
 import { openDatePicker } from './datepicker.js';
@@ -19,7 +20,7 @@ const DOW = ['א׳', 'ב׳', 'ג׳', 'ד׳', 'ה׳', 'ו׳', 'ש׳'];
 function chipMeta(h, d) {
   if (!h.times || !h.period) return '';
   const st = status(h, d);
-  if (st.mode === 'quota') return `<span class="hc-meta ${LEVEL[st.level] === 'bad' ? 'bad' : ''}">${st.count}/${st.times}</span>`;
+  if (st.mode === 'quota') return `<span class="hc-meta ${LEVEL[st.level] === 'bad' ? 'bad' : st.level === 'done' ? 'good' : ''}">${st.count}/${st.times}</span>`;
   if (st.never || valueOn(h, d) > 0) return ''; // done that day: the countdown to the next time isn't news
   const u = st.until;
   const txt = u < 0 ? `באיחור ${-u === 1 ? 'יום' : `${-u} ימים`}` : u === 0 ? 'היעד היום' : `עוד ${u === 1 ? 'יום' : u === 2 ? 'יומיים' : `${u} ימים`} ליעד`;
@@ -34,7 +35,8 @@ export function chip(h, d) {
       <button data-hbump="${h.id}" data-delta="1" data-hday="${day}" aria-label="עוד אחד">${icon('plus')}</button>
     </div>`;
   }
-  return `<button class="hchip ${v ? 'on' : ''}" role="switch" aria-checked="${!!v}" data-htoggle="${h.id}" data-hday="${day}">
+  const goal = h.times > 1 && status(h, d).level === 'done';
+  return `<button class="hchip ${v ? 'on' : ''} ${goal ? 'goal' : ''}" role="switch" aria-checked="${!!v}" data-htoggle="${h.id}" data-hday="${day}">
     <span class="hc-emo">${h.emoji}</span><span class="hc-name">${esc(h.name)}</span>${chipMeta(h, d)}<span class="hc-knob" aria-hidden="true">${icon('check')}</span></button>`;
 }
 export function dayHabits(d) {
@@ -324,8 +326,28 @@ export const onHabitChange = fn => { afterChange = fn; };
 document.addEventListener('click', e => {
   const t = e.target.closest('[data-htoggle],[data-hbump],[data-hpin],[data-hremind],[data-hedit],[data-hadd],[data-hconnect],[data-hmore]');
   if (!t || t.closest('.sheet')) return;
-  if (t.dataset.htoggle) { haptic(10); toggleHabit(t.dataset.htoggle, t.dataset.hday ? fromYmd(t.dataset.hday) : new Date()); afterChange?.(); return; }
-  if (t.dataset.hbump) { haptic(6); bump(t.dataset.hbump, t.dataset.hday ? fromYmd(t.dataset.hday) : new Date(), Number(t.dataset.delta)); afterChange?.(); return; }
+  if (t.dataset.htoggle) {
+    const id = t.dataset.htoggle, d = t.dataset.hday ? fromYmd(t.dataset.hday) : new Date(), h = habitById(id);
+    const turningOn = !valueOn(h, d);
+    const before = status(h, d).level;
+    toggleHabit(id, d);
+    const goalNow = turningOn && h.times > 1 && before !== 'done' && status(h, d).level === 'done';
+    const sel = `[data-htoggle="${id}"][data-hday="${ymd(d)}"]`;
+    if (turningOn) {
+      const r = t.getBoundingClientRect();
+      burst(r.left + r.width / 2, r.top + r.height / 2, { emoji: h.emoji, big: goalNow });
+      haptic(goalNow ? [12, 40, 20] : 14);
+      queueFx({ type: 'on', sel }); if (goalNow) queueFx({ type: 'goal', sel });
+    } else { haptic(6); queueFx({ type: 'off', sel }); }
+    afterChange?.(); return;
+  }
+  if (t.dataset.hbump) {
+    const id = t.dataset.hbump, delta = Number(t.dataset.delta), d = t.dataset.hday ? fromYmd(t.dataset.hday) : new Date();
+    bump(id, d, delta);
+    if (delta > 0) { const r = t.getBoundingClientRect(); burst(r.left + r.width / 2, r.top + r.height / 2, { emoji: habitById(id).emoji }); haptic(10); }
+    queueFx({ type: delta > 0 ? 'on' : 'off', sel: `.hchip.count:has([data-hbump="${id}"])` });
+    afterChange?.(); return;
+  }
   if (t.dataset.hpin) { togglePin(t.dataset.hpin, startOfDay(new Date())); afterChange?.(); return; }
   if (t.dataset.hremind) {
     const h = habitById(t.dataset.hremind);

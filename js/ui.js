@@ -12,6 +12,7 @@ import { auth } from './auth.js';
 import { openTimePicker } from './timepicker.js';
 import { store } from './util.js';
 import { dayHabits, habitCounts, habitsDashboard } from './habitui.js';
+import { burst, flushFx, ringFx } from './fx.js';
 
 export const view = { weather: null, digest: null, openDone: false, openNoDate: false, habitsOpen: false };
 let handlers = {};
@@ -707,6 +708,8 @@ export function render() {
     </div>`;
   scrollTo(0, y);
   glideSheet();
+  flushFx();
+  if (isToday()) ringFx(dayProgress().pct);
   observeHero();
   playFlip();
 }
@@ -763,6 +766,7 @@ export function bindMain() {
       case 'task': openTask(id); break;
       case 'toggle': {
         const row = b.closest('.task');
+        if (!b.classList.contains('on')) { const r = b.getBoundingClientRect(); burst(r.left + r.width / 2, r.top + r.height / 2, { emoji: '✅' }); haptic(14); }
         row?.classList.add('just-done');
         b.classList.toggle('on');
         setTimeout(() => toggleTask(id), 380);
