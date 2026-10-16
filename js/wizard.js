@@ -229,7 +229,8 @@ function cardBody(item) {
       <div class="c-kind">${icon('sprout')}הרגלים</div>
       <h3 class="c-title">${W.mode === 'evening' ? 'מה הספקת היום?' : 'מה בתוכנית היום?'}</h3>
       <p class="c-desc">${c.done}/${c.total} מההרגלים של היום סומנו. ${W.mode === 'evening' ? 'מסמנים מה נעשה,' : 'הנעץ 📌 מוסיף הרגל למסך הראשי להיום,'} והפעמון קובע תזכורת.</p>
-      <div class="hlist wz-hlist">${habitList({ wizard: true })}</div>`;
+      <div class="hlist wz-hlist">${habitList({ wizard: true })}</div>
+      <button class="btn wz-hadd" data-hadd>${icon('plus')}הרגל חדש</button>`;
   }
   if (item.type === 'event' || item.type === 'preview') {
     const ev = state.events.find(e => e.id === item.id);

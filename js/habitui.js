@@ -7,7 +7,7 @@ import {
 } from './habits.js';
 import { suggestEmojis } from './emoji.js';
 import { statsSection } from './habitstats.js';
-import { openSheet, paintSheet, closeSheet } from './overlay.js';
+import { openSheet, paintSheet, closeSheet, openMenu } from './overlay.js';
 import { openTimePicker } from './timepicker.js';
 import { openDatePicker } from './datepicker.js';
 import { esc, ymd, fromYmd, startOfDay, haptic, shortDate, daysBetween } from './util.js';
@@ -39,8 +39,16 @@ export function chip(h, d) {
 }
 export function dayHabits(d) {
   const list = habitsOn(d);
-  if (!list.length) return '';
-  return `<div class="habit-row" aria-label="הרגלים">${list.map(h => chip(h, d)).join('')}</div>`;
+  const more = H.list.length > list.length;
+  return `<div class="habit-row" aria-label="הרגלים">${list.map(h => chip(h, d)).join('')}
+    ${more ? `<button class="hround" data-hmore data-hday="${ymd(d)}" aria-label="הרגל נוסף להיום">${icon('dots')}</button>` : ''}
+    <button class="hround" data-hadd aria-label="הרגל חדש">${icon('plus')}</button></div>`;
+}
+// the habits that aren't on this day: picking one adds its switch for that day
+function openMoreMenu(anchor, d) {
+  const shown = new Set(habitsOn(d).map(h => h.id));
+  const rest = H.list.filter(h => !shown.has(h.id)).sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+  openMenu(anchor, rest.map(h => ({ label: `${h.emoji}  ${h.name}`, hint: freqText(h), onClick: () => { togglePin(h.id, d); haptic(8); afterChange?.(); } })));
 }
 export function habitCounts(d = new Date()) {
   const list = habitsOn(d);
@@ -314,7 +322,7 @@ export function openEmojiPopup(anchor, name, current, onPick) {
 let afterChange = null;
 export const onHabitChange = fn => { afterChange = fn; };
 document.addEventListener('click', e => {
-  const t = e.target.closest('[data-htoggle],[data-hbump],[data-hpin],[data-hremind],[data-hedit],[data-hadd],[data-hconnect]');
+  const t = e.target.closest('[data-htoggle],[data-hbump],[data-hpin],[data-hremind],[data-hedit],[data-hadd],[data-hconnect],[data-hmore]');
   if (!t || t.closest('.sheet')) return;
   if (t.dataset.htoggle) { haptic(10); toggleHabit(t.dataset.htoggle, t.dataset.hday ? fromYmd(t.dataset.hday) : new Date()); afterChange?.(); return; }
   if (t.dataset.hbump) { haptic(6); bump(t.dataset.hbump, t.dataset.hday ? fromYmd(t.dataset.hday) : new Date(), Number(t.dataset.delta)); afterChange?.(); return; }
@@ -326,6 +334,7 @@ document.addEventListener('click', e => {
       onClear: h.remind ? () => { saveHabit({ ...h, remind: '' }); afterChange?.(); } : null });
     return;
   }
+  if ('hmore' in t.dataset) { openMoreMenu(t, t.dataset.hday ? fromYmd(t.dataset.hday) : new Date()); return; }
   if ('hadd' in t.dataset) { openHabitEditor(null, { onDone: afterChange }); return; }
   if ('hconnect' in t.dataset) { reconnectForHabits(); return; }
   if (t.dataset.hedit && !e.target.closest('button')) openHabitEditor(t.dataset.hedit, { onDone: afterChange });

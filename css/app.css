@@ -1046,3 +1046,9 @@ select.inp { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.
 .s5 { background: color-mix(in srgb, var(--brand) 30%, #ffffff) !important; }
 .st-spark { display: flex; align-items: flex-end; gap: 2px; height: 56px; }
 .st-spark i { flex: 1; height: calc(var(--p) * 100%); min-height: 2px; border-radius: 2px 2px 1px 1px; background: color-mix(in srgb, var(--brand) 75%, var(--surface-2)); }
+/* round extras at the end of the day's habit switches */
+.hround { width: 40px; height: 40px; border-radius: 20px; display: grid; place-items: center; background: var(--surface-2); color: var(--ink-2); border: 1.5px dashed color-mix(in srgb, var(--ink-3) 55%, transparent); }
+.hround .ic { width: 19px; height: 19px; }
+.hround:active { transform: scale(.94); }
+.menu { max-height: min(60vh, 440px); overflow-y: auto; overscroll-behavior: contain; }
+.wz-hadd { margin-top: 12px; width: 100%; justify-content: center; }
