@@ -101,6 +101,8 @@ export const demo = {
   async moveTask(task, listId) { const x = tasks.find(y => y.id === task.id); if (x) { x.listId = listId; x.listTitle = lists.find(l => l.id === listId)?.title; } tasks.filter(y => y.parent === task.id).forEach(y => { y.listId = listId; }); return task.id; },
   async moveEvent(ev, { start, end, title }) { const e = events.find(x => x.id === ev.id); if (!e) return; if (start) { e.start = start; e.end = end; } if (title) e.title = title; },
   async eventTitles(cs, from, to) { const ids = new Set(cs.map(c => c.id)); return events.filter(e => ids.has(e.calId) && !e.taskRef && !e.habitRef && e.start >= from && e.start < to).map(e => ({ id: e.id, title: e.title, start: e.start })); },
+  async person() { return { name: '', phones: [] }; },
+  async searchContacts(q) { return q.includes('רוני') ? [{ name: 'רוני לוי', phones: ['+972501234567'] }] : []; },
   async deleteTask(task) { tasks = tasks.filter(x => x.id !== task.id && x.parent !== task.id); },
   async emails() { await wait(); return emails.map(e => ({ ...e })); },
   async labels() { return [{ id: 'Label_1', name: 'לקוחות', color: '#16a765' }, { id: 'Label_2', name: 'שנקר', color: '#a479e2' }, { id: 'Label_3', name: 'חשבוניות', color: '#ffad47' }]; },

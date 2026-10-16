@@ -10,6 +10,7 @@ export const SCOPES = [
   'https://www.googleapis.com/auth/tasks',
   'https://www.googleapis.com/auth/gmail.modify',
   'https://www.googleapis.com/auth/drive.file', // only files this app creates: the habits sheet
+  'https://www.googleapis.com/auth/contacts.readonly', // phone numbers for birthday greetings
 ];
 
 // Must match "Authorized redirect URIs" in the Google client, character for character.

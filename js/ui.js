@@ -13,6 +13,7 @@ import { openTimePicker } from './timepicker.js';
 import { store } from './util.js';
 import { dayHabits, habitCounts, habitsDashboard } from './habitui.js';
 import { burst, flushFx, ringFx } from './fx.js';
+import { openBirthday, editBirthday, birthdayById } from './bday.js';
 
 export const view = { weather: null, digest: null, openDone: false, openNoDate: false, habitsOpen: false };
 let handlers = {};
@@ -239,7 +240,7 @@ function eventsSection() {
       <div class="sec-h"><h2 id="h-ev">ביומן ${isToday() ? 'להיום' : `ליום ${dayName(state.day)}`}</h2>${evs.length ? `<span class="count">${evs.length}</span>` : ''}
         <button class="icon-btn" data-act="add-event" aria-label="אירוע חדש">${icon('plus')}</button></div>
       <div class="group mk-${state.settings.marker}">
-        ${allDay.length ? `<div class="allday">${allDay.map(e => `<button class="ad-chip" data-act="event" data-id="${e.id}">${e.birthday ? '<span class="cake">🎂</span>' : `<i style="background:${calColor(calById(e.calId))}"></i>`}${esc(e.title)}</button>`).join('')}</div>` : ''}
+        ${allDay.length ? `<div class="allday">${allDay.map(e => `<button class="ad-chip ${e.birthday ? 'bday' : ''}" data-act="${e.birthday ? 'bday' : 'event'}" data-id="${e.id}">${e.birthday ? '<span class="cake">🎂</span>' : `<i style="background:${calColor(calById(e.calId))}"></i>`}${esc(e.title)}</button>`).join('')}</div>` : ''}
         ${rows || (allDay.length ? '' : `<div class="empty"><b>אין אירועים ${isToday() ? 'היום' : 'ביום הזה'}</b>מקום פנוי ביומן.</div>`)}
       </div>
     </section>`;
@@ -274,7 +275,7 @@ function daySection() {
       <div class="sec-h"><h2 id="h-day">${today ? 'היום שלי' : `יום ${dayName(day)}`}</h2>${total ? `<span class="count">${total}</span>` : ''}
         <button class="icon-btn" data-act="add-menu" aria-label="הוספה">${icon('plus')}</button></div>
       <div class="group combo mk-${state.settings.marker}">
-        ${allDay.length ? `<div class="allday">${allDay.map(e => `<button class="ad-chip" data-act="event" data-id="${e.id}">${e.birthday ? '<span class="cake">🎂</span>' : `<i style="background:${calColor(calById(e.calId))}"></i>`}${esc(e.title)}</button>`).join('')}</div>` : ''}
+        ${allDay.length ? `<div class="allday">${allDay.map(e => `<button class="ad-chip ${e.birthday ? 'bday' : ''}" data-act="${e.birthday ? 'bday' : 'event'}" data-id="${e.id}">${e.birthday ? '<span class="cake">🎂</span>' : `<i style="background:${calColor(calById(e.calId))}"></i>`}${esc(e.title)}</button>`).join('')}</div>` : ''}
         ${dayHabits(day)}
         <div class="zone-h ${anyTasks.length ? '' : 'empty'}" data-slot="anyhead">${icon('check')}משימות בלי שעה</div>
         ${anyTasks.map(t => comboTaskRow(t, null)).join('')}
@@ -736,6 +737,11 @@ export function mountFabs() {
 
 export function bindMain() {
   document.addEventListener('pointerdown', e => { if (!e.target.closest('.sheet, .wizard')) armLongPress(e); });
+  // long-press (context menu) on a birthday: set or fix whose number it is
+  document.addEventListener('contextmenu', e => {
+    const b = e.target.closest('[data-act="bday"]'); if (!b) return;
+    e.preventDefault(); const ev = birthdayById(b.dataset.id); if (ev) editBirthday(ev);
+  });
   document.addEventListener('click', e => { if (swallowClick) { e.stopPropagation(); e.preventDefault(); } }, true);
   document.addEventListener('contextmenu', e => { if (e.target.closest('.task.combo')) e.preventDefault(); });
   // the time on a task is a real (invisible) time input over the label: a tap opens the phone's picker
@@ -763,6 +769,7 @@ export function bindMain() {
     const id = b.dataset.id;
     switch (b.dataset.act) {
       case 'event': openEvent(id); break;
+      case 'bday': { const ev = birthdayById(id); if (ev) openBirthday(ev); break; }
       case 'task': openTask(id); break;
       case 'toggle': {
         const row = b.closest('.task');

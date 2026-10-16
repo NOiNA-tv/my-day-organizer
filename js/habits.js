@@ -61,6 +61,7 @@ export const H = {
   list: saved?.list || seed(),
   log: saved?.log || {}, // 'YYYY-MM-DD|id' → number (1 for a done toggle)
   pins: saved?.pins || {}, // 'YYYY-MM-DD' → [ids] picked in the wizard for that day
+  contacts: saved?.contacts || {}, // birthday person key → { name, phone } (set or fixed by hand)
   updated: saved?.updated || 0,
   sheet: store.get('habitSheet') || null, // { id, webViewLink }
   sync: 'local', // local | ok | syncing | needs-consent | needs-api | error
@@ -73,7 +74,7 @@ export const sorted = () => [...H.list].sort((a, b) => (a.order ?? 0) - (b.order
 
 function persist({ remote = true } = {}) {
   H.updated = Date.now();
-  store.set('habits', { list: H.list, log: H.log, pins: H.pins, updated: H.updated });
+  store.set('habits', { list: H.list, log: H.log, pins: H.pins, contacts: H.contacts, updated: H.updated });
   emit();
   if (remote) queueWrite();
 }
@@ -297,7 +298,7 @@ export async function syncReminder(h) {
 
 // ---------- Google Sheet ----------
 const SHEET_NAME = 'מה איתי היום – הרגלים';
-const TABS = ['הרגלים', 'יומן', 'נבחרו באשף', 'מידע'];
+const TABS = ['הרגלים', 'יומן', 'נבחרו באשף', 'מידע', 'אנשי קשר'];
 const COLS = ['id', 'שם', 'אימוג׳י', 'סוג', 'פעמים', 'תקופה', 'קבוצה', 'הופעה', 'פרמטר', 'תזכורת', 'אירוע תזכורת', 'סדר'];
 
 export function toRows() {
@@ -306,6 +307,7 @@ export function toRows() {
     [TABS[0]]: [COLS, ...sorted().map(h => [h.id, h.name, h.emoji, h.kind, h.times ?? '', h.period ?? '', h.group || '', h.show?.type || 'daily', showParam(h.show || {}), h.remind || '', h.remindEv || '', h.order ?? 0])],
     [TABS[1]]: [['תאריך', 'id', 'הרגל', 'כמות'], ...Object.entries(H.log).sort().map(([k, v]) => { const [d, id] = k.split('|'); return [d, id, habitById(id)?.name || '', v]; })],
     [TABS[2]]: [['תאריך', 'id'], ...Object.entries(H.pins).flatMap(([d, ids]) => ids.map(id => [d, id]))],
+    [TABS[4]]: [['מפתח', 'שם', 'טלפון'], ...Object.entries(H.contacts).map(([k, c]) => [k, c.name || '', c.phone || ''])],
     [TABS[3]]: [['עודכן', 'הערה'], [new Date(H.updated).toISOString(), 'הגיליון מתעדכן מהאפליקציה. אפשר לקרוא כאן, עדיף לערוך באפליקציה.']],
   };
 }
@@ -325,7 +327,9 @@ export function fromRows(t) {
   const pins = {};
   for (const [d, id] of (t[TABS[2]] || []).slice(1)) if (d && id) (pins[d] ||= []).push(id);
   const updated = Date.parse((t[TABS[3]] || [])[1]?.[0] || '') || 0;
-  return { list, log, pins, updated };
+  const contacts = {};
+  for (const [k, name, phone] of (t[TABS[4]] || []).slice(1)) if (k) contacts[k] = { name: name || '', phone: String(phone || '') };
+  return { list, log, pins, updated, contacts };
 }
 
 let writeTimer = 0, writing = null;
@@ -364,12 +368,13 @@ export async function loadHabits() {
       H.sheet = await a.findSheet(SHEET_NAME) || await a.createSheet(SHEET_NAME, TABS);
       store.set('habitSheet', H.sheet);
     }
+    await a.ensureTabs?.(H.sheet.id, TABS);
     let remote;
     try { remote = fromRows(await a.readSheet(H.sheet.id, TABS)); }
     catch (e) { if (/404|not found|Requested entity/i.test(e.message)) { store.del('habitSheet'); H.sheet = null; return loadHabits(); } throw e; }
     if (remote && remote.updated >= H.updated) {
-      Object.assign(H, { list: remote.list, log: remote.log, pins: remote.pins, updated: remote.updated });
-      store.set('habits', { list: H.list, log: H.log, pins: H.pins, updated: H.updated });
+      Object.assign(H, { list: remote.list, log: remote.log, pins: remote.pins, contacts: { ...H.contacts, ...remote.contacts }, updated: remote.updated });
+      store.set('habits', { list: H.list, log: H.log, pins: H.pins, contacts: H.contacts, updated: H.updated });
       H.sync = 'ok';
     } else {
       await writeNow(); // empty sheet, or this device has newer changes
@@ -395,3 +400,4 @@ export function memberCount(h, ref = new Date()) {
   let n = 0; for (let d = new Date(s); d < e; d = addDays(d, 1)) if (valueOn(h, d) > 0) n++;
   return n;
 }
+export function setContact(key, c) { if (c) H.contacts[key] = c; else delete H.contacts[key]; persist(); }

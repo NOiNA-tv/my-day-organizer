@@ -40,6 +40,7 @@ function normEvent(e, cal) {
     id: e.id, calId: cal.id, title: e.summary || '(ללא כותרת)', start, end, allDay,
     location: e.location || '', description: e.description || '', htmlLink: e.htmlLink,
     reminder, reminders, reminderIsDefault, snoozeFor: e.extendedProperties?.private?.mdSnooze || null,
+    contactRef: /^people\//.test(e.birthdayProperties?.contact || '') ? e.birthdayProperties.contact : null,
     taskRef: e.extendedProperties?.private?.mdTask || null, habitRef: e.extendedProperties?.private?.mdHabit || null,
     attachments: (e.attachments || []).map(a => ({ title: a.title || 'קובץ', url: a.fileUrl, icon: a.iconLink || '' })),
     guests: (e.attendees || []).filter(a => !a.resource).map(a => ({ name: a.displayName || a.email, email: a.email, self: !!a.self, status: a.responseStatus })),
@@ -209,6 +210,23 @@ export const google = {
       sheets: tabs.map(t => ({ properties: { title: t, rightToLeft: true, gridProperties: { frozenRowCount: 1 } } })),
     }) });
     return { id: r.spreadsheetId, webViewLink: r.spreadsheetUrl };
+  },
+  async ensureTabs(id, tabs) { // add tabs that an older version of the sheet doesn't have
+    const r = await g(`${SHEETS}/${id}?fields=sheets.properties.title`);
+    const have = new Set((r.sheets || []).map(x => x.properties.title));
+    const add = tabs.filter(t => !have.has(t));
+    if (add.length) await g(`${SHEETS}/${id}:batchUpdate`, { method: 'POST', body: JSON.stringify({ requests: add.map(t => ({ addSheet: { properties: { title: t, rightToLeft: true, gridProperties: { frozenRowCount: 1 } } } })) }) });
+  },
+  // ---------- contacts (People API): phone numbers for birthdays ----------
+  async person(resourceName) {
+    const p = await g(`https://people.googleapis.com/v1/${resourceName}?personFields=names,phoneNumbers`);
+    return { name: p.names?.[0]?.displayName || '', phones: (p.phoneNumbers || []).map(x => x.canonicalForm || x.value) };
+  },
+  async searchContacts(query) {
+    const url = q => `https://people.googleapis.com/v1/people:searchContacts?${qs({ query: q, readMask: 'names,phoneNumbers', pageSize: 10 })}`;
+    await g(url('')).catch(() => {}); // warm-up request, as the API asks
+    const r = await g(url(query));
+    return (r.results || []).map(x => ({ name: x.person?.names?.[0]?.displayName || '', phones: (x.person?.phoneNumbers || []).map(p => p.canonicalForm || p.value) }));
   },
   async readSheet(id, tabs) {
     const r = await g(`${SHEETS}/${id}/values:batchGet?${tabs.map(t => `ranges=${encodeURIComponent(`'${t}'!A:Z`)}`).join('&')}`);
