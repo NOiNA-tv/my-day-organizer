@@ -1066,3 +1066,4 @@ select.inp { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.
 .hchip.goal.on .hc-knob .ic { color: #fff; }
 .hc-meta.good { color: #fff; background: #22c08a; }
 .hchip.on .hc-meta.good { background: #22c08a; color: #fff; }
+.fx-spark { position: absolute; width: 5px; height: 5px; border-radius: 50%; background: var(--c); box-shadow: 0 0 6px 2px var(--c), 0 0 14px 4px color-mix(in srgb, var(--c) 45%, transparent); will-change: transform, opacity; }
