@@ -20,7 +20,7 @@ function chipMeta(h, d) {
   if (!h.times || !h.period) return '';
   const st = status(h, d);
   if (st.mode === 'quota') return `<span class="hc-meta ${LEVEL[st.level] === 'bad' ? 'bad' : ''}">${st.count}/${st.times}</span>`;
-  if (st.never) return '';
+  if (st.never || valueOn(h, d) > 0) return ''; // done that day: the countdown to the next time isn't news
   const u = st.until;
   const txt = u < 0 ? `באיחור ${-u === 1 ? 'יום' : `${-u} ימים`}` : u === 0 ? 'היעד היום' : `עוד ${u === 1 ? 'יום' : u === 2 ? 'יומיים' : `${u} ימים`} ליעד`;
   return `<span class="hc-meta ${LEVEL[st.level] || ''}">${txt}</span>`;
