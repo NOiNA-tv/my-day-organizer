@@ -25,7 +25,7 @@ function ring(p) {
     <button class="ring ${open ? 'open' : ''}" data-act="habits" aria-pressed="${open}" aria-label="${open ? 'חזרה ליום' : `הרגלים · הושלמו ${p.done} מתוך ${p.total} להיום`}">
       <svg viewBox="0 0 92 92"><circle class="track" cx="46" cy="46" r="40" fill="none" stroke-width="8"/>
         <circle class="val" cx="46" cy="46" r="40" fill="none" stroke-width="8" stroke-linecap="round" stroke-dasharray="${C}" stroke-dashoffset="${C * (1 - p.pct)}" ${p.done ? '' : 'opacity="0"'}/></svg>
-      <span class="ring-label">${icon(open ? 'arrowR' : 'sprout', 'ring-ic')}<span class="ring-num">${p.done}/${p.total}</span></span>
+      <span class="ring-label">${icon(open ? 'arrowL' : 'sprout', 'ring-ic')}<span class="ring-num">${p.done}/${p.total}</span></span>
     </button>`;
 }
 function dayProgress() {

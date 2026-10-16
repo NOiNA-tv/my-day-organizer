@@ -6,6 +6,7 @@ import {
   toggleHabit, bump, togglePin, isPinned, saveHabit, deleteHabit, nextEmojiEvent, reconnectForHabits, rankedRows, memberCount, lastDone, setValue, modeOf,
 } from './habits.js';
 import { suggestEmojis } from './emoji.js';
+import { statsSection } from './habitstats.js';
 import { openSheet, paintSheet, closeSheet } from './overlay.js';
 import { openTimePicker } from './timepicker.js';
 import { openDatePicker } from './datepicker.js';
@@ -14,17 +15,27 @@ import { esc, ymd, fromYmd, startOfDay, haptic, shortDate, daysBetween } from '.
 const DOW = ['א׳', 'ב׳', 'ג׳', 'ד׳', 'ה׳', 'ו׳', 'ש׳'];
 
 // ---------- the day's switches (main screen, under "היום שלי") ----------
+// small progress tag on a switch: "1/3" for n-times goals, "עוד 5 ימים" for once-every-X ones
+function chipMeta(h, d) {
+  if (!h.times || !h.period) return '';
+  const st = status(h, d);
+  if (st.mode === 'quota') return `<span class="hc-meta ${LEVEL[st.level] === 'bad' ? 'bad' : ''}">${st.count}/${st.times}</span>`;
+  if (st.never) return '';
+  const u = st.until;
+  const txt = u < 0 ? `באיחור ${-u === 1 ? 'יום' : `${-u} ימים`}` : u === 0 ? 'היעד היום' : `עוד ${u === 1 ? 'יום' : u === 2 ? 'יומיים' : `${u} ימים`} ליעד`;
+  return `<span class="hc-meta ${LEVEL[st.level] || ''}">${txt}</span>`;
+}
 export function chip(h, d) {
   const v = valueOn(h, d), day = ymd(d);
   if (h.kind === 'count') {
     return `<div class="hchip count ${v ? 'on' : ''}" role="group" aria-label="${esc(h.name)}: ${v}">
       <button data-hbump="${h.id}" data-delta="-1" data-hday="${day}" aria-label="פחות" ${v ? '' : 'disabled'}>${icon('minus')}</button>
-      <span class="hc-lab"><span class="hc-emo">${h.emoji}</span>${esc(h.name)}<b>${v}</b></span>
+      <span class="hc-lab"><span class="hc-emo">${h.emoji}</span>${esc(h.name)}<b>${v}${h.times && h.period === 'day' ? `/${h.times}` : ''}</b></span>
       <button data-hbump="${h.id}" data-delta="1" data-hday="${day}" aria-label="עוד אחד">${icon('plus')}</button>
     </div>`;
   }
   return `<button class="hchip ${v ? 'on' : ''}" role="switch" aria-checked="${!!v}" data-htoggle="${h.id}" data-hday="${day}">
-    <span class="hc-emo">${h.emoji}</span><span class="hc-name">${esc(h.name)}</span><span class="hc-knob" aria-hidden="true">${icon('check')}</span></button>`;
+    <span class="hc-emo">${h.emoji}</span><span class="hc-name">${esc(h.name)}</span>${chipMeta(h, d)}<span class="hc-knob" aria-hidden="true">${icon('check')}</span></button>`;
 }
 export function dayHabits(d) {
   const list = habitsOn(d);
@@ -139,7 +150,8 @@ export function habitsDashboard() {
       ${syncNote()}
       <div class="hlist">${habitList()}</div>
       ${H.sheet?.webViewLink ? `<a class="hsheet" href="${esc(H.sheet.webViewLink)}" target="_blank" rel="noopener">${icon('external')}הגיליון בגוגל שיטס</a>` : ''}
-    </section>`;
+    </section>
+    ${statsSection()}`;
 }
 
 // ---------- editor ----------
