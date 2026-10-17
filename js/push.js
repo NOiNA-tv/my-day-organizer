@@ -170,11 +170,11 @@ document.addEventListener('click', async e => {
       await recoverSub();
       const miss = pipelineMissing();
       if (miss) { pushInfo.msg = miss; return paintSheet(); }
-      b.disabled = true; b.classList.add('busy'); b.textContent = 'שומר…';
+      b.disabled = true; b.classList.add('busy'); b.textContent = 'שולח…';
       store.set('testPush', Date.now() + 60000);
       await writePlan({ force: true });
       const ok = !planInfo.error;
-      b.classList.remove('busy'); b.textContent = ok ? 'נשמר ✓' : 'נכשל';
+      b.classList.remove('busy'); b.textContent = ok ? 'נשלח ✓' : 'נכשל';
       pushInfo.msg = ok ? `תזכורת לדוגמה תגיע בסביבות ${new Date(Date.now() + 60000).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })}, עד כמה דקות אחרי.` : 'לא נשמר: ' + planInfo.error;
       setTimeout(paintSheet, 1600);
       return;
