@@ -1071,3 +1071,12 @@ select.inp { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.
 .ad-chip.bday { box-shadow: inset 0 0 0 1.5px color-mix(in srgb, #25d366 55%, transparent); -webkit-touch-callout: none; user-select: none; }
 .wa-btn { display: flex; width: 100%; justify-content: center; margin-top: 12px; background: #25d366 !important; color: #053d1d !important; text-decoration: none; }
 .ltr-inp { direction: ltr; text-align: right; }
+
+/* counted slips (negative counters) */
+.hchip.count.neg.on { background: color-mix(in srgb, #7a2a6a 22%, var(--surface-2)); border-color: color-mix(in srgb, #a0306e 65%, transparent); }
+.hchip.count.neg .hc-lab b { color: #d6457e; }
+.fx-smoke { position: absolute; width: 34px; height: 34px; border-radius: 50%; background: radial-gradient(circle, rgba(40,10,40,.85), rgba(20,5,25,0) 70%); filter: blur(4px); will-change: transform, opacity; }
+.fx-bad { filter: drop-shadow(0 0 6px rgba(140,20,80,.8)); }
+.fx-wave-bad { border-color: #6b1450; box-shadow: 0 0 14px rgba(110,20,90,.7), inset 0 0 10px rgba(110,20,90,.6); }
+.fx-vignette { position: absolute; inset: 0; background: radial-gradient(ellipse at center, transparent 35%, rgba(20,0,20,.55)); }
+.hg-emo { font-size: 26px; background: none; border: 0; padding: 0; align-self: start; }

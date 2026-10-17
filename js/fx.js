@@ -3,6 +3,8 @@
 import { reducedMotion, haptic } from './util.js';
 
 const COLORS = ['#3cc4dc', '#22c08a', '#ffd84d', '#ff7aa2', '#8f6ee8', '#ffffff', '#f28b38'];
+const DARK = ['#2a0f1f', '#4b1030', '#1c2b16', '#3b1a5a', '#14101c', '#5a0f14', '#2d3a12'];
+const ANGRY = ['😠', '😡', '👿', '💀', '😤', '👎', '🖤', '☠️'];
 const queue = [];
 let layer = null;
 const getLayer = () => {
@@ -12,8 +14,9 @@ const getLayer = () => {
 const rnd = (a, b) => a + Math.random() * (b - a);
 
 // confetti + a few emojis flying out of (x, y), then drifting down slowly like fairy dust
-export function burst(x, y, { emoji = '', big = false } = {}) {
+export function burst(x, y, { emoji = '', big = false, dark = false } = {}) {
   if (reducedMotion()) return;
+  if (dark) return cursed(x, y, emoji);
   const L = getLayer(), n = big ? 44 : 24;
   const done = el => () => el.remove();
   for (let i = 0; i < n; i++) {
@@ -62,6 +65,65 @@ export function burst(x, y, { emoji = '', big = false } = {}) {
   w.animate([{ transform: 'translate(-50%,-50%) scale(.2)', opacity: .9 }, { transform: `translate(-50%,-50%) scale(${big ? 5 : 3})`, opacity: 0 }], { duration: big ? 1300 : 950, easing: 'cubic-bezier(.2,.7,.3,1)' }).finished.then(done(w), done(w));
 }
 
+// the opposite: a counted slip. Dark bits sink heavily, angry faces rise and wobble,
+// and the fairy dust is still there but turned bad: violet, toxic green and blood red, flickering, with smoke
+function cursed(x, y, emoji) {
+  const L = getLayer(), done = el => () => el.remove();
+  const T = (tx, ty, sc, r) => `translate(calc(-50% + ${tx}px), calc(-50% + ${ty}px)) scale(${sc}) rotate(${r}deg)`;
+  // smoke
+  for (let i = 0; i < 7; i++) {
+    const s = document.createElement('i'); s.className = 'fx-smoke';
+    s.style.left = x + rnd(-16, 16) + 'px'; s.style.top = y + rnd(-8, 8) + 'px'; L.append(s);
+    const dx = rnd(-50, 50), dy = rnd(-90, -30);
+    s.animate([{ transform: T(0, 0, .3, 0), opacity: 0 }, { transform: T(dx * .4, dy * .4, 1.4, 20), opacity: .75, offset: .25 }, { transform: T(dx, dy, 2.6, 60), opacity: 0 }],
+      { duration: rnd(1800, 2800), delay: rnd(0, 250), easing: 'ease-out', fill: 'both' }).finished.then(done(s), done(s));
+  }
+  // heavy dark shards that drop
+  for (let i = 0; i < 26; i++) {
+    const p = document.createElement('i'); p.className = `fx-bit ${['sq', 'rd', 'ln'][i % 3]}`;
+    p.style.background = DARK[i % DARK.length]; p.style.boxShadow = '0 0 4px rgba(120,20,60,.6)';
+    p.style.left = x + 'px'; p.style.top = y + 'px'; L.append(p);
+    const ang = rnd(Math.PI * .1, Math.PI * .9) * (Math.random() < .25 ? -1 : 1), dist = rnd(30, 90);
+    const dx = Math.cos(ang) * dist, dy = Math.sin(ang) * dist * .5, fall = rnd(160, 320), rot = rnd(-200, 200);
+    p.animate([{ transform: T(0, 0, .3, 0), opacity: 1 }, { transform: T(dx, dy, 1, rot * .3), opacity: 1, offset: .15 },
+      { transform: T(dx * 1.1, dy + fall * .6, .9, rot * .7), opacity: .8, offset: .6 }, { transform: T(dx * 1.15, dy + fall, .7, rot), opacity: 0 }],
+      { duration: rnd(2200, 3400), easing: 'cubic-bezier(.4,0,.8,.6)', fill: 'forwards' }).finished.then(done(p), done(p));
+  }
+  // angry faces (and the habit's own emoji) rising slowly, shaking
+  const faces = [emoji, ...ANGRY.sort(() => Math.random() - .5).slice(0, 3)].filter(Boolean);
+  faces.forEach((f, i) => {
+    const e = document.createElement('i'); e.className = 'fx-emo fx-bad'; e.textContent = f;
+    e.style.left = x + 'px'; e.style.top = y + 'px'; L.append(e);
+    const dx = rnd(-70, 70), up = rnd(70, 130), w = rnd(6, 12);
+    e.animate([{ transform: T(0, 0, .2, 0), opacity: 0 }, { transform: T(dx * .5, -up * .4, 1.4, -w), opacity: 1, offset: .18 },
+      { transform: T(dx * .6 + w, -up * .55, 1.25, w), offset: .3 }, { transform: T(dx * .7 - w, -up * .7, 1.2, -w), offset: .42 },
+      { transform: T(dx * .8 + w, -up * .82, 1.15, w), opacity: .9, offset: .55 }, { transform: T(dx, -up, 1, 0), opacity: 0 }],
+      { duration: rnd(2600, 3600), delay: i * 120, easing: 'ease-out', fill: 'both' }).finished.then(done(e), done(e));
+  });
+  // cursed dust: flickers on and off, drifts down and sideways like ash
+  for (let i = 0; i < 26; i++) {
+    const s = document.createElement('i'); s.className = 'fx-spark';
+    s.style.left = x + rnd(-26, 26) + 'px'; s.style.top = y + rnd(-14, 14) + 'px';
+    s.style.setProperty('--c', ['#9b3cff', '#7dff4a', '#ff2a4d', '#5b2a86'][i % 4]);
+    L.append(s);
+    const ang = rnd(0, Math.PI * 2), dist = rnd(30, 130), dx = Math.cos(ang) * dist, dy = Math.sin(ang) * dist * .6, sink = rnd(40, 140);
+    s.animate([{ transform: 'translate(-50%,-50%) scale(0)', opacity: 0 },
+      { transform: `translate(calc(-50% + ${dx * .5}px), calc(-50% + ${dy * .5}px)) scale(1.3)`, opacity: 1, offset: .12 },
+      { transform: `translate(calc(-50% + ${dx * .7}px), calc(-50% + ${dy * .7}px)) scale(.4)`, opacity: .1, offset: .22 },
+      { transform: `translate(calc(-50% + ${dx * .85}px), calc(-50% + ${dy + sink * .3}px)) scale(1.2)`, opacity: 1, offset: .34 },
+      { transform: `translate(calc(-50% + ${dx * .9}px), calc(-50% + ${dy + sink * .45}px)) scale(.5)`, opacity: .15, offset: .46 },
+      { transform: `translate(calc(-50% + ${dx}px), calc(-50% + ${dy + sink * .7}px)) scale(1)`, opacity: .85, offset: .62 },
+      { transform: `translate(calc(-50% + ${dx * 1.05}px), calc(-50% + ${dy + sink}px)) scale(0)`, opacity: 0 }],
+      { duration: rnd(2800, 4600), delay: rnd(0, 400), easing: 'ease-in-out', fill: 'both' }).finished.then(done(s), done(s));
+  }
+  // a dark pulse instead of the bright shockwave
+  const w = document.createElement('i'); w.className = 'fx-wave fx-wave-bad'; w.style.left = x + 'px'; w.style.top = y + 'px'; L.append(w);
+  w.animate([{ transform: 'translate(-50%,-50%) scale(.2)', opacity: .95 }, { transform: 'translate(-50%,-50%) scale(3.4)', opacity: 0 }], { duration: 1400, easing: 'cubic-bezier(.2,.7,.3,1)' }).finished.then(done(w), done(w));
+  // a brief dim of the whole screen
+  const v = document.createElement('i'); v.className = 'fx-vignette'; L.append(v);
+  v.animate([{ opacity: 0 }, { opacity: 1, offset: .2 }, { opacity: 0 }], { duration: 1600, easing: 'ease-out' }).finished.then(done(v), done(v));
+}
+
 // big moment (everything done today): confetti rains from the top
 export function shower() {
   if (reducedMotion()) return;
@@ -82,6 +144,11 @@ export function flushFx() {
     if (f.type === 'off') el.animate([
       { transform: 'scale(1.05)' }, { transform: 'scale(.9) translateX(3px)', offset: .3 }, { transform: 'translateX(-3px)', offset: .55 }, { transform: 'none' },
     ], { duration: 600, easing: 'ease-out' });
+    if (f.type === 'cursed') {
+      el.animate([{ transform: 'scale(.92)' }, { transform: 'translateX(-5px) rotate(-1.5deg)', offset: .15 }, { transform: 'translateX(5px) rotate(1.5deg)', offset: .3 },
+        { transform: 'translateX(-4px)', offset: .45 }, { transform: 'translateX(3px)', offset: .6 }, { transform: 'none' }], { duration: 700, easing: 'ease-out' });
+      el.animate([{ boxShadow: '0 0 0 0 rgba(120,20,90,.9)', filter: 'saturate(.3) brightness(.7)' }, { boxShadow: '0 0 18px 6px rgba(80,0,60,0)', filter: 'none' }], { duration: 1500, easing: 'ease-out' });
+    }
     if (f.type === 'goal') el.animate([
       { boxShadow: '0 0 0 0 rgba(34,192,138,.8)' }, { boxShadow: '0 0 0 14px rgba(34,192,138,0)' },
     ], { duration: 1300, iterations: 2 });

@@ -1,7 +1,7 @@
 // Habit statistics for the dashboard: how the habits break down — by habit, by weekday, by month, by member.
 // Ideas from the research: no breaking chains (successful weeks, not days), habit strength that grows slowly
 // (Loop-style score; ~66 days on average to become automatic), and plain dot calendars.
-import { H, PERIODS, sorted, valueOn, members, periodWindow, modeOf } from './habits.js';
+import { H, groupEmoji, PERIODS, sorted, valueOn, members, periodWindow, modeOf } from './habits.js';
 import { esc, ymd, fromYmd, addDays, startOfDay, daysBetween, MONTHS_SHORT } from './util.js';
 
 const DOW = ['א׳', 'ב׳', 'ג׳', 'ד׳', 'ה׳', 'ו׳', 'ש׳'];
@@ -101,7 +101,7 @@ function byHabit() {
     return { h, n, r: successRate(h) };
   }).sort((a, b) => b.n - a.n);
   const max = Math.max(1, ...rows.map(r => r.n));
-  const lab = h => (h.group ? `${members(h).map(m => m.emoji).join('')} ${esc(h.group)}` : `${h.emoji} ${esc(h.name)}`);
+  const lab = h => (h.group ? `${groupEmoji(h.group)} ${esc(h.group)}` : `${h.emoji} ${esc(h.name)}`);
   return rows.map(({ h, n, r }) => hbar(lab(h), n, max, `${n}${r != null ? ` · ${Math.round(r * 100)}%` : ''}`)).join('');
 }
 
@@ -116,7 +116,7 @@ function byWeekday() {
 function strengths() {
   const seen = new Set();
   const rows = goalHabits().filter(h => (h.group ? !seen.has(h.group) && seen.add(h.group) : true)).map(h => ({ h, s: strength(h) })).sort((a, b) => b.s - a.s);
-  return rows.map(({ h, s }) => hbar(h.group ? `${members(h).map(m => m.emoji).join('')} ${esc(h.group)}` : `${h.emoji} ${esc(h.name)}`, s, 1, `${Math.round(s * 100)}%`, s >= .8 ? 'good' : '')).join('');
+  return rows.map(({ h, s }) => hbar(h.group ? `${groupEmoji(h.group)} ${esc(h.group)}` : `${h.emoji} ${esc(h.name)}`, s, 1, `${Math.round(s * 100)}%`, s >= .8 ? 'good' : '')).join('');
 }
 
 // once-every-X habits: the real gap between times vs the target

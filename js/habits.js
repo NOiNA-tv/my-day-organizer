@@ -3,7 +3,7 @@ import { state, emit, api, toast, visibleCals } from './data.js';
 import { auth } from './auth.js';
 import { AuthError } from './google.js';
 import { store, ymd, fromYmd, addDays, addMonths, startOfDay, daysBetween, uid, sameDay } from './util.js';
-import { textHasEmoji } from './emoji.js';
+import { textHasEmoji, suggestEmojis } from './emoji.js';
 
 // ---------- vocab ----------
 export const PERIODS = {
@@ -67,7 +67,7 @@ const seed = () => {
     h('הופעה', '🎤', 3, 'month', { type: 'none', emoji: true }, social),
     h('סרט', '🎬', 3, 'month', { type: 'none', emoji: true }, social),
     h('ישיבה', '🍻', 3, 'month', { type: 'none', emoji: true }, social),
-    h('וויד', '🌿', null, null, { type: 'daily' }, { kind: 'count' }),
+    h('וויד', '🌿', null, null, { type: 'daily' }, { kind: 'count', sign: 'neg' }),
   ].map((x, i) => ({ ...x, order: i }));
 };
 
@@ -78,6 +78,7 @@ export const H = {
   log: saved?.log || {}, // 'YYYY-MM-DD|id' → number (1 for a done toggle)
   pins: saved?.pins || {}, // 'YYYY-MM-DD' → [ids] picked in the wizard for that day
   contacts: saved?.contacts || {}, // birthday person key → { name, phone } (set or fixed by hand)
+  groups: saved?.groups || {}, // group name → emoji
   updated: saved?.updated || 0,
   sheet: store.get('habitSheet') || null, // { id, webViewLink }
   sync: 'local', // local | ok | syncing | needs-consent | needs-api | error
@@ -90,7 +91,7 @@ export const sorted = () => [...H.list].sort((a, b) => (a.order ?? 0) - (b.order
 
 function persist({ remote = true } = {}) {
   H.updated = Date.now();
-  store.set('habits', { list: H.list, log: H.log, pins: H.pins, contacts: H.contacts, updated: H.updated });
+  store.set('habits', { list: H.list, log: H.log, pins: H.pins, contacts: H.contacts, groups: H.groups, updated: H.updated });
   emit();
   if (remote) queueWrite();
 }
@@ -336,11 +337,11 @@ export function toRows() {
   const showParam = s => (s.type === 'fixed' ? `${(s.days || []).join(',')}|${s.every || 'week'}${s.anchor ? `@${s.anchor}` : ''}` : s.type === 'monthday' ? String(s.day || 1) : s.n || '');
   const showType = s => (s.type || 'daily') + (s.emoji ? '+emoji' : '');
   return {
-    [TABS[0]]: [COLS, ...sorted().map(h => [h.id, h.name, h.emoji, h.kind, h.times ?? '', h.period ?? '', h.group || '', showType(h.show || {}), showParam(h.show || {}), h.remind || '', h.remindEv || '', h.order ?? 0])],
+    [TABS[0]]: [COLS, ...sorted().map(h => [h.id, h.name, h.emoji, h.kind + (h.kind === 'count' && h.sign === 'neg' ? ':neg' : ''), h.times ?? '', h.period ?? '', h.group || '', showType(h.show || {}), showParam(h.show || {}), h.remind || '', h.remindEv || '', h.order ?? 0])],
     [TABS[1]]: [['תאריך', 'id', 'הרגל', 'כמות'], ...Object.entries(H.log).sort().map(([k, v]) => { const [d, id] = k.split('|'); return [d, id, habitById(id)?.name || '', v]; })],
     [TABS[2]]: [['תאריך', 'id'], ...Object.entries(H.pins).flatMap(([d, ids]) => ids.map(id => [d, id]))],
     [TABS[4]]: [['מפתח', 'שם', 'טלפון'], ...Object.entries(H.contacts).map(([k, c]) => [k, c.name || '', c.phone || ''])],
-    [TABS[3]]: [['עודכן', 'הערה'], [new Date(H.updated).toISOString(), 'הגיליון מתעדכן מהאפליקציה. אפשר לקרוא כאן, עדיף לערוך באפליקציה.']],
+    [TABS[3]]: [['עודכן', 'הערה'], [new Date(H.updated).toISOString(), 'הגיליון מתעדכן מהאפליקציה. אפשר לקרוא כאן, עדיף לערוך באפליקציה.'], ...Object.entries(H.groups).map(([g, e]) => [`קבוצה:${g}`, e])],
   };
 }
 export function fromRows(t) {
@@ -356,7 +357,8 @@ export function fromRows(t) {
     else if (param) show.n = String(param);
     if (flag === 'emoji') show.emoji = true;
     show = normShow(show);
-    return { id, name, emoji, kind: kind || 'toggle', times: times === '' ? null : Number(times), period: period || null, group, show, remind: String(remind || ''), remindEv: String(remindEv || ''), order: Number(order) || 0 };
+    const [k0, sg] = String(kind || 'toggle').split(':');
+    return { id, name, emoji, kind: k0, ...(sg === 'neg' ? { sign: 'neg' } : {}), times: times === '' ? null : Number(times), period: period || null, group, show, remind: String(remind || ''), remindEv: String(remindEv || ''), order: Number(order) || 0 };
   });
   const log = {};
   for (const [d, id, , v] of (t[TABS[1]] || []).slice(1)) if (d && id && Number(v)) log[`${d}|${id}`] = Number(v);
@@ -365,7 +367,9 @@ export function fromRows(t) {
   const updated = Date.parse((t[TABS[3]] || [])[1]?.[0] || '') || 0;
   const contacts = {};
   for (const [k, name, phone] of (t[TABS[4]] || []).slice(1)) if (k) contacts[k] = { name: name || '', phone: String(phone || '') };
-  return { list, log, pins, updated, contacts };
+  const groups = {};
+  for (const [k, e] of (t[TABS[3]] || []).slice(2)) if (String(k).startsWith('קבוצה:') && e) groups[String(k).slice(6)] = e;
+  return { list, log, pins, updated, contacts, groups };
 }
 
 let writeTimer = 0, writing = null;
@@ -409,15 +413,23 @@ export async function loadHabits() {
     try { remote = fromRows(await a.readSheet(H.sheet.id, TABS)); }
     catch (e) { if (/404|not found|Requested entity/i.test(e.message)) { store.del('habitSheet'); H.sheet = null; return loadHabits(); } throw e; }
     if (remote && remote.updated >= H.updated) {
-      Object.assign(H, { list: remote.list, log: remote.log, pins: remote.pins, contacts: { ...H.contacts, ...remote.contacts }, updated: remote.updated });
-      store.set('habits', { list: H.list, log: H.log, pins: H.pins, contacts: H.contacts, updated: H.updated });
+      Object.assign(H, { list: remote.list, log: remote.log, pins: remote.pins, contacts: { ...H.contacts, ...remote.contacts }, groups: { ...H.groups, ...remote.groups }, updated: remote.updated });
+      store.set('habits', { list: H.list, log: H.log, pins: H.pins, contacts: H.contacts, groups: H.groups, updated: H.updated });
       H.sync = 'ok';
     } else {
       await writeNow(); // empty sheet, or this device has newer changes
     }
   } catch (e) { classify(e); }
+  migrateSigns();
   emit();
   loadEmojiEvents();
+}
+// once: the weed counter counts slips, not wins
+function migrateSigns() {
+  if (store.get('signsV')) return;
+  const w = H.list.find(h => h.kind === 'count' && /וויד|ויד|גראס|weed/i.test(h.name));
+  store.set('signsV', 1);
+  if (w && !w.sign) { w.sign = 'neg'; persist(); }
 }
 export async function loadEmojiEvents() {
   if (!H.list.some(h => normShow(h.show).emoji)) return;
@@ -436,4 +448,11 @@ export function memberCount(h, ref = new Date()) {
   let n = 0; for (let d = new Date(s); d < e; d = addDays(d, 1)) if (valueOn(h, d) > 0) n++;
   return n;
 }
+// one emoji for a group: picked by hand, or a guess from its name
+export function groupEmoji(g) {
+  if (H.groups[g]) return H.groups[g];
+  if (/חבר|פנאי|בילוי|יציא/.test(g)) return '🥳';
+  return suggestEmojis(g)[0] || '✨';
+}
+export function setGroupEmoji(g, e) { H.groups[g] = e; persist(); }
 export function setContact(key, c) { if (c) H.contacts[key] = c; else delete H.contacts[key]; persist(); }

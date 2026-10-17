@@ -2,7 +2,7 @@
 import { icon } from './icons.js';
 import { state } from './data.js';
 import {
-  H, PERIODS, DURS, SHOW_TYPES, EVERY, normShow, habitById, members, valueOn, status, statusText, freqText, showText, shownOn, habitsOn, rankedHabits,
+  H, groupEmoji, setGroupEmoji, PERIODS, DURS, SHOW_TYPES, EVERY, normShow, habitById, members, valueOn, status, statusText, freqText, showText, shownOn, habitsOn, rankedHabits,
   toggleHabit, bump, togglePin, isPinned, saveHabit, deleteHabit, nextEmojiEvent, reconnectForHabits, rankedRows, memberCount, lastDone, setValue, modeOf,
 } from './habits.js';
 import { suggestEmojis } from './emoji.js';
@@ -29,7 +29,7 @@ function chipMeta(h, d) {
 export function chip(h, d) {
   const v = valueOn(h, d), day = ymd(d);
   if (h.kind === 'count') {
-    return `<div class="hchip count ${v ? 'on' : ''}" role="group" aria-label="${esc(h.name)}: ${v}">
+    return `<div class="hchip count ${h.sign === 'neg' ? 'neg' : ''} ${v ? 'on' : ''}" role="group" aria-label="${esc(h.name)}: ${v}">
       <button data-hbump="${h.id}" data-delta="-1" data-hday="${day}" aria-label="פחות" ${v ? '' : 'disabled'}>${icon('minus')}</button>
       <span class="hc-lab"><span class="hc-emo">${h.emoji}</span>${esc(h.name)}<b>${v}${h.times && h.period === 'day' ? `/${h.times}` : ''}</b></span>
       <button data-hbump="${h.id}" data-delta="1" data-hday="${day}" aria-label="עוד אחד">${icon('plus')}</button>
@@ -131,8 +131,8 @@ export function habitList({ wizard = false } = {}) {
       const ms = members(h), st = status(h);
       out.push(`
         <div class="hgroup lvl-${LEVEL[st.level] || 'none'}">
-          <div class="hg-head"><span class="hg-emos">${ms.map(m => m.emoji).join('')}</span>
-            <div class="hmain"><div class="htitle">${esc(h.group)}<small>${freqText(h)}, יחד</small></div><div class="hstat">${statusText(h)}</div>${dots(h, st)}</div></div>
+          <div class="hg-head"><button class="hemo hg-emo" data-hgemo="${esc(h.group)}" aria-label="אימוג׳י לקבוצה">${groupEmoji(h.group)}</button>
+            <div class="hmain"><div class="htitle">${esc(h.group)}<small>${freqText(h)}, לפחות</small></div><div class="hstat">${statusText(h)}</div>${dots(h, st)}</div></div>
           ${ms.map(m => habitRow(m, { wizard, member: true })).join('')}
         </div>`);
     } else out.push(habitRow(h, { wizard }));
@@ -193,6 +193,7 @@ export function openHabitEditor(id = null, { onDone } = {}) {
       </div>
 
       <div class="field-label">יעד: כמה פעמים, בכמה זמן</div>
+      ${f.kind === 'count' ? `<div class="seg" style="margin-bottom:8px"><button type="button" data-sign="pos" aria-pressed="${f.sign !== 'neg'}">👍 ספירה לחיוב</button><button type="button" data-sign="neg" aria-pressed="${f.sign === 'neg'}">👎 ספירה לשלילה</button></div>` : ''}
       ${f.kind === 'count' ? `<div class="seg" style="margin-bottom:8px"><button type="button" data-goal="none" aria-pressed="${!f.times}">בלי יעד, רק לספור</button><button type="button" data-goal="set" aria-pressed="${!!f.times}">עם יעד</button></div>` : ''}
       ${f.times ? `<div class="hed-freq">
         <div class="stepper"><button type="button" data-times="-1" aria-label="פחות">${icon('minus')}</button><b>${f.times}</b><button type="button" data-times="1" aria-label="יותר">${icon('plus')}</button></div>
@@ -212,7 +213,7 @@ export function openHabitEditor(id = null, { onDone } = {}) {
         ${EVERY[s.every]?.m ? `${EVERY[s.every].m > 1 ? `<div class="row-lab">החל מ־<select class="inp" data-key="show-anchor">${Array.from({ length: EVERY[s.every].m }, (_, i) => { const d = new Date(today.getFullYear(), today.getMonth() + i, 1); const v = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; return `<option value="${v}" ${s.anchor === v ? 'selected' : ''}>${MONTHS[d.getMonth()]}${d.getFullYear() !== today.getFullYear() ? ` ${d.getFullYear()}` : ''}</option>`; }).join('')}</select></div>` : ''}
           <p class="small-print" style="margin-top:6px">ב${(s.days || []).map(d => `יום ${DOW[d]}`).join(' / ')} הראשון של החודש.</p>` : ''}` : ''}
       ${s.type === 'monthday' ? `<input class="inp" type="number" min="1" max="31" inputmode="numeric" data-key="show-day" value="${s.day || 1}" aria-label="יום בחודש" style="margin-top:8px">` : ''}
-      ${s.type === 'since' ? `<div class="row-lab">כשעברו ${durSel(['1w', '2w', '1m', '2m', '3m', '6m', '1y'])} מהפעם האחרונה</div>` : ''}
+      ${s.type === 'since' ? `<div class="row-lab">כשעברו ${durSel(['2d', '1w', '2w', '1m', '2m', '3m', '6m', '1y'])} מהפעם האחרונה</div>` : ''}
       ${s.type === 'until' ? `<div class="row-lab">${durSel(['0d', '1d', '2d', '1w', '2w', '1m'])} לפני היעד, ונשאר עד שמסמנים</div>` : ''}
       ${s.type === 'none' ? '<p class="small-print" style="margin-top:6px">רק בימים עם האימוג׳י ביומן, או כשבוחרים אותו באשף (📌).</p>' : ''}
       <div class="set-row" style="margin-top:10px"><div class="grow"><b>גם ביום שיש ביומן אירוע עם ${f.emoji}</b><small>כל אירוע שהכותרת שלו כוללת את האימוג׳י</small></div>
@@ -275,6 +276,7 @@ export function openHabitEditor(id = null, { onDone } = {}) {
     const b = e.target.closest('button'); if (!b) return;
     if ('emopick' in b.dataset) { openEmojiPopup(b, f.name, f.emoji, em => { f.emoji = em; f.emojiManual = true; paintSheet(); }); return; }
     if (b.dataset.kind) { f.kind = b.dataset.kind; if (f.kind === 'count' && !orig) { f.times = null; f.period = null; } if (f.kind === 'toggle' && !f.times) { f.times = 1; f.period = 'week'; } paintSheet(); return; }
+    if (b.dataset.sign) { if (b.dataset.sign === 'neg') f.sign = 'neg'; else delete f.sign; paintSheet(); return; }
     if (b.dataset.goal) { if (b.dataset.goal === 'none') { f.times = null; f.period = null; } else { f.times = 1; f.period = 'day'; } paintSheet(); return; }
     if (b.dataset.times) { f.times = Math.max(1, Math.min(99, (f.times || 1) + Number(b.dataset.times))); paintSheet(); return; }
     if (b.dataset.dow != null) {
@@ -342,8 +344,9 @@ export function openEmojiPopup(anchor, name, current, onPick) {
 let afterChange = null;
 export const onHabitChange = fn => { afterChange = fn; };
 document.addEventListener('click', e => {
-  const t = e.target.closest('[data-htoggle],[data-hbump],[data-hpin],[data-hremind],[data-hedit],[data-hadd],[data-hconnect],[data-hmore]');
+  const t = e.target.closest('[data-hgemo],[data-htoggle],[data-hbump],[data-hpin],[data-hremind],[data-hedit],[data-hadd],[data-hconnect],[data-hmore]');
   if (!t || t.closest('.sheet')) return;
+  if (t.dataset.hgemo) { const g = t.dataset.hgemo; openEmojiPopup(t, g, groupEmoji(g), em => { setGroupEmoji(g, em); afterChange?.(); }); return; }
   if (t.dataset.htoggle) {
     const id = t.dataset.htoggle, d = t.dataset.hday ? fromYmd(t.dataset.hday) : new Date(), h = habitById(id);
     const turningOn = !valueOn(h, d);
@@ -362,8 +365,9 @@ document.addEventListener('click', e => {
   if (t.dataset.hbump) {
     const id = t.dataset.hbump, delta = Number(t.dataset.delta), d = t.dataset.hday ? fromYmd(t.dataset.hday) : new Date();
     bump(id, d, delta);
-    if (delta > 0) { const r = t.getBoundingClientRect(); burst(r.left + r.width / 2, r.top + r.height / 2, { emoji: habitById(id).emoji }); haptic(10); }
-    queueFx({ type: delta > 0 ? 'on' : 'off', sel: `.hchip.count:has([data-hbump="${id}"])` });
+    const neg = habitById(id).sign === 'neg';
+    if (delta > 0) { const r = t.getBoundingClientRect(); burst(r.left + r.width / 2, r.top + r.height / 2, { emoji: habitById(id).emoji, dark: neg }); haptic(neg ? [30, 60, 30] : 10); }
+    queueFx({ type: delta > 0 ? (neg ? 'cursed' : 'on') : 'off', sel: `.hchip.count:has([data-hbump="${id}"])` });
     afterChange?.(); return;
   }
   if (t.dataset.hpin) { togglePin(t.dataset.hpin, startOfDay(new Date())); afterChange?.(); return; }
