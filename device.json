@@ -1,15 +1,40 @@
 {
-  "at": "2026-10-17T17:07:49.513Z",
+  "at": "2026-10-17T17:08:05.917Z",
   "ver": "v42",
   "ua": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Mobile Safari/537.36",
   "standalone": true,
-  "perm": "default",
-  "endpoint": "f51X63oLswz8pGnl",
+  "perm": "granted",
+  "endpoint": "PI3JjhZrog0ehLsX",
   "steps": [
     [
-      "✗",
+      "✓",
       "הרשאת התראות",
-      "default"
+      "granted"
+    ],
+    [
+      "✓",
+      "שירות הרקע (service worker) פעיל",
+      "sw.js"
+    ],
+    [
+      "✗",
+      "כתובת התראות קיימת בטלפון",
+      "אין"
+    ],
+    [
+      "✓",
+      "נוצרה כתובת חדשה",
+      "…jhZrog0ehLsX"
+    ],
+    [
+      "✓",
+      "הכתובת נרשמה בשרת",
+      ""
+    ],
+    [
+      "✓",
+      "השרת שולח לכתובת הנוכחית",
+      ""
     ]
   ]
 }
