@@ -16,7 +16,23 @@ const DAYS = 10; // how far ahead the plan looks (the app refreshes it whenever 
 const KEEP_PAST = 6 * 3600e3; // already-rung items stay in the plan this long, so "remind me later" can find them
 const RISK_AT = '18:00', BDAY_AT = '10:00';
 export const leaveLead = () => store.get('leaveLead') ?? 45; // minutes before an event with an address; 0 = off
-export const pipelineOn = () => state.mode === 'live' && hasGh() && !!store.get('pushSub');
+// what's still missing for notifications to flow ('' = nothing)
+export function pipelineMissing() {
+  if (state.mode !== 'live') return 'צריך להתחבר לגוגל';
+  if (!hasGh()) return 'צריך לחבר את גיטהאב (בהתראות למטה)';
+  if (!store.get('pushSub')) return 'צריך ללחוץ ״חיבור״ כדי שהטלפון יקבל התראות';
+  return '';
+}
+export const pipelineOn = () => !pipelineMissing();
+// the phone may already be subscribed even if this copy of the app forgot it (e.g. after clearing data)
+export async function recoverSub() {
+  try {
+    if (store.get('pushSub') || !('serviceWorker' in navigator)) return;
+    const reg = await navigator.serviceWorker.ready;
+    const s = await reg.pushManager.getSubscription();
+    if (s) store.set('pushSub', s.toJSON());
+  } catch { /* no push here */ }
+}
 
 const at = (d, t) => { const [h, m] = t.split(':').map(Number); const x = new Date(d); x.setHours(h, m, 0, 0); return x; };
 const LATER_HOUR = { action: 'later', title: '⏰ עוד שעה' };
@@ -175,6 +191,7 @@ export function schedulePlan(ms = 15000) { clearTimeout(timer); timer = setTimeo
 
 const sigOf = items => JSON.stringify(items.filter(x => !x.past).map(x => [x.id, x.at, x.title, x.body, x.actions.map(a => a.action), x.data]));
 export async function writePlan({ force = false } = {}) {
+  await recoverSub();
   if (!pipelineOn()) return;
   if (writing) return writing;
   writing = (async () => {
@@ -237,6 +254,7 @@ export async function drainQueue() {
 // ---------- the move away from calendar reminders (once) ----------
 // Habit helper events go; task helper events stay (they hold the task's time) but stop ringing; snooze events go.
 export async function migrateCalendarReminders() {
+  await recoverSub();
   if (!pipelineOn() || store.get('remMigrated')) return;
   try {
     const a = api(), today = startOfDay(new Date());

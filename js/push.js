@@ -4,7 +4,7 @@ import { store, esc } from './util.js';
 import { icon } from './icons.js';
 import { paintSheet } from './overlay.js';
 import { openTimePicker } from './timepicker.js';
-import { leaveLead, planInfo, lastServerRun, schedulePlan, pipelineOn } from './notify.js';
+import { leaveLead, planInfo, lastServerRun, schedulePlan, pipelineOn, pipelineMissing, recoverSub, writePlan } from './notify.js';
 
 const supported = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
 
@@ -47,6 +47,10 @@ export async function loadPushInfo() {
       pushInfo.schedule = sch; pushInfo.endpoints = subs.map(x => x.endpoint);
     }
   } catch (e) { pushInfo.msg = e.message; }
+  // subscribed on this phone but not on the server's list → add it
+  await recoverSub();
+  const sub = store.get('pushSub');
+  if (ghToken() && sub && pushInfo.subs && !pushInfo.endpoints.includes(sub.endpoint)) registerDevice(sub).catch(e => { pushInfo.msg = e.message; });
 }
 
 export function pushPanel() {
@@ -64,7 +68,7 @@ export function pushPanel() {
     ${pushInfo.msg ? `<p class="push-msg">${esc(pushInfo.msg)}</p>` : ''}
     ${linked ? '' : `
       <details class="gh-setup">
-        <summary>${icon('pencil')}כדי לשנות שעות מכאן: חיבור לגיטהאב (פעם אחת)</summary>
+        <summary>${icon('pencil')}חיבור לגיטהאב (פעם אחת): נדרש לתזכורות ולשינוי השעות</summary>
         <ol>
           <li><a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">פתיחת יצירת מפתח בגיטהאב</a></li>
           <li>Token name: <code>my-day-organizer</code> · Expiration: <b>No expiration</b></li>
@@ -78,7 +82,7 @@ export function pushPanel() {
     <div class="set-row">
       <div class="grow"><b>${connected ? 'הטלפון הזה מקבל התראות ✓' : perm === 'denied' ? 'ההתראות חסומות בדפדפן' : 'הטלפון הזה לא מחובר להתראות'}</b>
         <small>${connected ? 'גם כשהאפליקציה סגורה. התראות מגיעות בדרך כלל עד כמה דקות אחרי השעה שנקבעה.' : linked ? 'לחיצה אחת מחברת אותו.' : 'אחרי החיבור לגיטהאב זה נעשה בלחיצה אחת.'}</small></div>
-      ${connected ? `<button class="btn sm" data-push="test">${icon('bell')}דוגמה</button>` : perm !== 'denied' ? `<button class="btn sm primary" data-push="on" ${linked || sub ? '' : 'disabled'}>${icon('bellRing')}חיבור</button>` : ''}
+      ${connected ? `<button class="btn sm" data-push="sample">${icon('bell')}דוגמה</button>` : perm !== 'denied' ? `<button class="btn sm primary" data-push="on" ${linked || sub ? '' : 'disabled'}>${icon('bellRing')}חיבור</button>` : ''}
     </div>
     <div class="set-row">
       <div class="grow"><b>🚗 התראת יציאה</b><small>לאירועים עם כתובת, עם כפתורי Waze ומפות</small></div>
@@ -142,10 +146,15 @@ document.addEventListener('click', async e => {
       const sub = (await reg.pushManager.getSubscription()) || await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64(VAPID_PUBLIC_KEY) });
       store.set('pushSub', sub.toJSON());
       if (ghToken()) { pushInfo.msg = 'מחבר…'; paintSheet(); await registerDevice(sub.toJSON()); pushInfo.msg = 'הטלפון מחובר ✓'; }
-    } else if (act === 'test') {
-      const reg = await navigator.serviceWorker.ready;
-      reg.showNotification('☀️ בוקר טוב!', { body: 'שתי דקות לסדר את היום: אירועים, משימות ומיילים.', icon: 'icons/icon-192.png', badge: 'icons/badge.png', tag: 'test', data: { url: './?wizard=morning' }, dir: 'rtl', lang: 'he' });
-      return;
+    } else if (act === 'sample') {
+      // all the way through: saved in the plan, sent by the job in a few minutes, with buttons
+      await recoverSub();
+      const miss = pipelineMissing();
+      if (miss) { pushInfo.msg = miss; return paintSheet(); }
+      pushInfo.msg = 'שומר…'; paintSheet();
+      store.set('testPush', Date.now() + 60000);
+      await writePlan({ force: true });
+      pushInfo.msg = planInfo.error ? 'לא נשמר: ' + planInfo.error : 'תזכורת לדוגמה תגיע בעוד כמה דקות ✓';
     }
   } catch (err) { console.error(err); pushInfo.msg = 'לא הצליח: ' + err.message; }
   paintSheet();

@@ -5,11 +5,10 @@ import {
   state, calById, calColor, deleteEvent, toggleTask, updateTask, deferTask, deleteTask, addTask, addEvent,
   saveSettings, refresh, APP_PALETTE, allTaskRoots, emit, api, reminderOf, setTaskReminder, moveTaskToList,
 } from './data.js';
-import { store, esc, hm, longDate, dayName, ymd, fromYmd, addDays, addMonths, startOfDay, countdown, relDayLabel, daysBetween, daysLeftLabel } from './util.js';
+import { esc, hm, longDate, dayName, ymd, fromYmd, addDays, addMonths, startOfDay, countdown, relDayLabel, daysBetween, daysLeftLabel } from './util.js';
 import { voiceSupported, listen, parseHebrew } from './voice.js';
 import { auth } from './auth.js';
 import { pushPanel, loadPushInfo } from './push.js';
-import { pipelineOn, writePlan, planInfo } from './notify.js';
 import { openTimePicker } from './timepicker.js';
 import { openDatePicker } from './datepicker.js';
 
@@ -441,10 +440,6 @@ export function openSettings({ onLogin } = {}) {
           </div>`).join('')}
       </div>
 
-      <div class="field-label">${icon('bell')}תזכורות</div>
-      <div class="set-row"><div class="grow"><b>תזכורת לדוגמה</b><small>עוברת את כל הדרך: נשמרת ברשימת ההתראות, והשרת שולח אותה בעוד כמה דקות, עם כפתורים.</small></div>
-        <button class="btn sm" data-test-reminder>${icon('bellRing')}שליחה</button></div>
-
       <div class="field-label">${icon('mail')}מיילים לטיפול</div>
       <div class="set-row"><div class="grow"><b>להציג מיילים ב״מה איתי היום״</b><small>הכרטיסים מאפשרים לארכב או להפוך מייל למשימה</small></div>
         <button class="switch" role="switch" aria-checked="${s.gmailEnabled}" data-toggle-set="gmailEnabled" aria-label="מיילים"></button></div>
@@ -462,7 +457,7 @@ export function openSettings({ onLogin } = {}) {
       ${state.lists.length > 1 ? `<div class="field-label">${icon('list')}רשימת ברירת מחדל למשימות חדשות</div>
         <select class="inp" data-key="defaultList">${state.lists.map(l => `<option value="${l.id}" ${l.id === (s.defaultList || state.lists[0].id) ? 'selected' : ''}>${esc(l.title)}</option>`).join('')}</select>` : ''}
 
-      <div class="field-label">${icon('bellRing')}התראות בוקר וערב</div>
+      <div class="field-label">${icon('bellRing')}התראות בטלפון</div>
       ${pushPanel()}
 
       <p class="small-print">גוגל משימות שומרות תאריך בלי שעה. השעה של משימה נשמרת כאירוע קטן ושקט (⏰) ביומן הראשי. ההתראה עצמה מגיעה מהאפליקציה, עם כפתורי ״בוצע״ ו״מחר״.<br>${state.lastSync ? `סונכרן לאחרונה ב־${hm(state.lastSync)}.` : ''}</p>`;
@@ -487,7 +482,6 @@ export function openSettings({ onLogin } = {}) {
       const n = b.dataset.labelToggle, h = s.hiddenLabels || [];
       saveSettings({ hiddenLabels: h.includes(n) ? h.filter(x => x !== n) : [...h, n] });
     }
-    else if ('testReminder' in b.dataset) { sendTestReminder(b); return; }
     else if (b.dataset.viewmode) saveSettings({ viewMode: b.dataset.viewmode });
     else if (b.dataset.toggleSet) { saveSettings({ [b.dataset.toggleSet]: !s[b.dataset.toggleSet] }); if (b.dataset.toggleSet === 'gmailEnabled') refresh(); }
     else if ('login' in b.dataset) { closeSheet(true, true); onLogin?.(); return; }
@@ -500,14 +494,6 @@ export function openSettings({ onLogin } = {}) {
     if (k === 'gmailQuery') { saveSettings({ gmailQuery: e.target.value.trim() }); refresh(); }
     if (k === 'defaultList') saveSettings({ defaultList: e.target.value });
   });
-}
-
-async function sendTestReminder(btn) {
-  if (!pipelineOn()) { btn.textContent = 'קודם לחבר התראות למטה'; return; }
-  btn.disabled = true; btn.textContent = 'שומר…';
-  store.set('testPush', Date.now() + 60000);
-  await writePlan({ force: true });
-  btn.textContent = planInfo.error ? 'לא הצליח' : 'תגיע בעוד כמה דקות ✓';
 }
 
 export function applyTheme() {
