@@ -47,10 +47,25 @@ export async function loadPushInfo() {
       pushInfo.schedule = sch; pushInfo.endpoints = subs.map(x => x.endpoint);
     }
   } catch (e) { pushInfo.msg = e.message; }
-  // subscribed on this phone but not on the server's list → add it
-  await recoverSub();
-  const sub = store.get('pushSub');
-  if (ghToken() && sub && pushInfo.subs && !pushInfo.endpoints.includes(sub.endpoint)) registerDevice(sub).catch(e => { pushInfo.msg = e.message; });
+  // the phone's real, current push address. Browsers expire and renew these; a stale one gets "410 Gone"
+  // and nothing arrives. Keep the stored copy and the server's list in step with the real one.
+  try {
+    if (supported && Notification.permission === 'granted') {
+      const reg = await navigator.serviceWorker.ready;
+      let s = await reg.pushManager.getSubscription();
+      // the push job notes when the address it has is dead (410/404): start over with a fresh one
+      const diag = ghToken() ? await ghGet('state.json', 'push-state').then(x => x?.diag).catch(() => null) : null;
+      if (s && diag?.sendErr && /^(404|410)/.test(diag.sendErr) && diag.sendAt > (store.get('subRenewedAt') || 0)) {
+        await s.unsubscribe().catch(() => {}); s = null; store.set('subRenewedAt', Date.now());
+      }
+      if (!s) s = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64(VAPID_PUBLIC_KEY) });
+      const live = s.toJSON(), old = store.get('pushSub')?.endpoint || null;
+      store.set('pushSub', live);
+      if (ghToken() && pushInfo.subs && (!pushInfo.endpoints.includes(live.endpoint) || (old && old !== live.endpoint && pushInfo.endpoints.includes(old)))) {
+        await registerDevice(live, old);
+      }
+    } else await recoverSub();
+  } catch (e) { console.warn('push address', e); }
 }
 
 export function pushPanel() {
@@ -112,9 +127,13 @@ async function saveTimes(kind, value) {
   pushInfo.saving = false; paintSheet();
 }
 
-async function registerDevice(sub) {
-  const subs = await ghGet('push/subscriptions.json');
-  if (!subs.some(x => x.endpoint === sub.endpoint)) { subs.push(sub); await ghPut('push/subscriptions.json', subs, 'Connect a phone for push'); }
+// replace: drop this phone's old address (the browser renews it now and then), add the current one
+async function registerDevice(sub, old = null) {
+  let subs = await ghGet('push/subscriptions.json');
+  const before = subs.length;
+  if (old && old !== sub.endpoint) subs = subs.filter(x => x.endpoint !== old);
+  if (!subs.some(x => x.endpoint === sub.endpoint)) subs.push(sub);
+  if (subs.length !== before || !before || old) await ghPut('push/subscriptions.json', subs, 'Connect a phone for push');
   pushInfo.endpoints = subs.map(x => x.endpoint);
 }
 
