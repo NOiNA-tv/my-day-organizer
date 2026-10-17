@@ -4,6 +4,7 @@ import { store, esc } from './util.js';
 import { icon } from './icons.js';
 import { paintSheet } from './overlay.js';
 import { openTimePicker } from './timepicker.js';
+import { emit } from './data.js';
 import { leaveLead, planInfo, lastServerRun, schedulePlan, pipelineOn, pipelineMissing, recoverSub, writePlan } from './notify.js';
 
 const supported = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
@@ -57,6 +58,16 @@ export async function loadPushInfo() {
 const swReady = () => Promise.race([navigator.serviceWorker.ready, new Promise((_, rej) => setTimeout(() => rej(new Error('שירות הרקע לא עלה')), 8000))]);
 const log = [];
 const step = (ok, label, detail = '') => { log.push({ ok, label, detail, at: Date.now() }); return ok; };
+// asked from a tap (Android needs one): permission, a fresh address, the server told, the plan resent
+export async function enableNotifications() {
+  if (!supported) return false;
+  if (Notification.permission !== 'granted' && await Notification.requestPermission() !== 'granted') return false;
+  const live = await ensureSub({ fresh: true }).catch(() => null);
+  schedulePlan(0);
+  report().catch(() => {});
+  return !!live && pushInfo.endpoints.includes(live.endpoint);
+}
+
 export async function ensureSub({ fresh = false } = {}) {
   log.length = 0;
   if (!supported) { step(false, 'הדפדפן לא תומך בהתראות'); return null; }
@@ -104,6 +115,7 @@ async function report(extra = {}) {
 // the full check in settings: each step on screen, ✓ or ✗
 export const checkState = { running: false, rows: [] };
 async function fullCheck() {
+  if (supported && Notification.permission === 'default') await Notification.requestPermission(); // needs this tap
   checkState.running = true; checkState.rows = []; paintSheet();
   const live = await ensureSub({ fresh: true }).catch(e => { step(false, 'שגיאה', e.message); return null; });
   // a notification shown by the phone itself, no server: proves the phone can display them
@@ -131,8 +143,8 @@ export function pushPanel() {
   const sch = pushInfo.schedule || { morning: '07:30', evening: '20:30' };
   const linked = !!ghToken();
   const sub = store.get('pushSub');
-  const connected = sub && pushInfo.endpoints.includes(sub.endpoint);
   const perm = Notification.permission;
+  const connected = perm === 'granted' && sub && pushInfo.endpoints.includes(sub.endpoint);
   return `
     <div class="push-times">
       <label><span>☀️ אשף הבוקר</span><button class="inp time-btn" data-push-pick="morning" ${linked ? '' : 'disabled'}>${sch.morning}</button></label>
@@ -153,9 +165,9 @@ export function pushPanel() {
         <p class="small-print">המפתח נשמר רק בטלפון הזה ומאפשר לשנות רק את המאגר של האפליקציה.</p>
       </details>`}
     <div class="set-row">
-      <div class="grow"><b>${connected ? 'הטלפון הזה מקבל התראות ✓' : perm === 'denied' ? 'ההתראות חסומות בדפדפן' : 'הטלפון הזה לא מחובר להתראות'}</b>
-        <small>${connected ? 'גם כשהאפליקציה סגורה. התראות מגיעות בדרך כלל עד כמה דקות אחרי השעה שנקבעה.' : linked ? 'לחיצה אחת מחברת אותו.' : 'אחרי החיבור לגיטהאב זה נעשה בלחיצה אחת.'}</small></div>
-      ${connected ? `<button class="btn sm" data-push="sample">${icon('bell')}דוגמה</button>` : perm !== 'denied' ? `<button class="btn sm primary" data-push="on" ${linked || sub ? '' : 'disabled'}>${icon('bellRing')}חיבור</button>` : ''}
+      <div class="grow"><b>${connected ? 'הטלפון הזה מקבל התראות ✓' : perm === 'denied' ? 'ההתראות חסומות בטלפון' : perm === 'default' ? 'ההתראות לא מאושרות בטלפון' : 'הטלפון הזה לא מחובר להתראות'}</b>
+        <small>${connected ? 'גם כשהאפליקציה סגורה. התראות מגיעות בדרך כלל עד כמה דקות אחרי השעה שנקבעה.' : perm === 'denied' ? 'להפעלה: הגדרות הטלפון ← אפליקציות ← מה איתי היום ← התראות.' : linked ? 'לחיצה אחת מאשרת ומחברת.' : 'אחרי החיבור לגיטהאב זה נעשה בלחיצה אחת.'}</small></div>
+      ${connected ? `<button class="btn sm" data-push="sample">${icon('bell')}דוגמה</button>` : perm !== 'denied' ? `<button class="btn sm primary" data-push="on" ${linked ? '' : 'disabled'}>${icon('bellRing')}${perm === 'default' ? 'לאפשר' : 'חיבור'}</button>` : ''}
     </div>
     <div class="set-row">
       <div class="grow"><b>🚗 התראת יציאה</b><small>לאירועים עם כתובת, עם כפתורי Waze ומפות</small></div>
@@ -222,11 +234,10 @@ document.addEventListener('click', async e => {
       if (pushInfo.msg && !pushInfo.msg.includes('✓')) store.del('ghToken');
     } else if (act === 'unlink') { store.del('ghToken'); pushInfo.msg = ''; }
     else if (act === 'on') {
-      const reg = await navigator.serviceWorker.ready;
-      if (await Notification.requestPermission() !== 'granted') return paintSheet();
-      const sub = (await reg.pushManager.getSubscription()) || await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64(VAPID_PUBLIC_KEY) });
-      store.set('pushSub', sub.toJSON());
-      if (ghToken()) { pushInfo.msg = 'מחבר…'; paintSheet(); await registerDevice(sub.toJSON()); pushInfo.msg = 'הטלפון מחובר ✓'; }
+      b.disabled = true; b.classList.add('busy');
+      const ok = await enableNotifications();
+      pushInfo.msg = ok ? 'הטלפון מחובר להתראות ✓' : Notification.permission === 'denied' ? 'ההתראות חסומות. אפשר להפעיל בהגדרות הטלפון ← אפליקציות ← מה איתי היום ← התראות.' : 'לא אושר.';
+      emit();
     } else if (act === 'check') { await fullCheck(); return;
     } else if (act === 'sample') {
       // all the way through: saved in the plan, sent by the job in a few minutes, with buttons

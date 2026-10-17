@@ -687,6 +687,12 @@ function banners() {
     return `<div class="banner">${icon('google')}<div><b>מצב הדגמה</b>${auth.configured ? 'הנתונים כאן לדוגמה. התחבר כדי לראות את היומן והמשימות שלך.' : 'חסר Client ID.'}</div>
       ${auth.configured ? `<button class="btn sm primary" data-act="login">התחברות</button>` : ''}</div>`;
   }
+  // notifications were set up, but the phone no longer allows them (Android can reset this): say so up front
+  if ('Notification' in window && Notification.permission !== 'granted' && (store.get('pushSub') || store.get('ghToken'))) {
+    return Notification.permission === 'denied'
+      ? `<div class="banner err">${icon('bellOff')}<div><b>ההתראות חסומות בטלפון</b>תזכורות לא יגיעו. להפעלה: הגדרות הטלפון ← אפליקציות ← מה איתי היום ← התראות.</div></div>`
+      : `<div class="banner err">${icon('bellOff')}<div><b>ההתראות כבויות</b>תזכורות והתראות לא יגיעו עד שתאשר.</div><button class="btn sm primary" data-push="on">לאפשר</button></div>`;
+  }
   if (state.error) return `<div class="banner err"><div><b>לא הצלחתי לטעון מגוגל</b>${esc(state.error)}</div><button class="btn sm" data-act="refresh">נסה שוב</button></div>`;
   return '';
 }
