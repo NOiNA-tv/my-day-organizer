@@ -46,6 +46,7 @@ catch (e) { planErr = e.message; console.error('plan unreadable:', e.message); }
 const inbox = readJson(process.env.INBOX_FILE, []) || [];
 
 const out = []; // [payload, onSent]
+let sendErr = '';
 
 // ---------- 1. morning / evening ----------
 const forced = ['morning', 'evening'].includes(process.env.KIND) ? process.env.KIND : null;
@@ -148,7 +149,7 @@ await digestNote().catch(e => console.error('digest:', e.message));
 // ---------- send ----------
 if (!out.length) console.log(`Nothing due at ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}.`);
 else {
-  const subs = readJson(here('./subscriptions.json'), []);
+  var subs = readJson(here('./subscriptions.json'), []);
   let webpush = null;
   if (!DRY) { webpush = (await import('web-push')).default; webpush.setVapidDetails('https://noina-tv.github.io/my-day-organizer/', PUBLIC, PRIVATE); }
   for (const [msg, onSent] of out) {
@@ -156,7 +157,7 @@ else {
     if (DRY) { console.log('WOULD SEND', JSON.stringify(msg)); ok = 1; }
     else for (const s of subs) {
       try { await webpush.sendNotification(s, JSON.stringify(msg), { TTL: 3 * 3600, urgency: 'high' }); ok++; }
-      catch (e) { console.error('failed', e.statusCode, e.body); }
+      catch (e) { console.error('failed', e.statusCode, e.body); sendErr = `${e.statusCode || ''} ${String(e.body || e.message).slice(0, 120)}`.trim(); }
     }
     console.log(`sent "${msg.title}" to ${ok}/${DRY ? 1 : subs.length}`);
     if (ok) { onSent(); changed = true; }
@@ -164,7 +165,7 @@ else {
 }
 
 // a small health note, readable from outside (logs aren't): which plan this job saw, and whether it could read it
-const diag = { made: plan.made || 0, items: (plan.items || []).length, err: planErr };
+const diag = { made: plan.made || 0, items: (plan.items || []).length, err: planErr, ...(sendErr ? { sendErr, sendAt: +now } : state.diag?.sendErr ? { sendErr: state.diag.sendErr, sendAt: state.diag.sendAt } : {}) };
 if (JSON.stringify(state.diag || {}) !== JSON.stringify(diag)) { state.diag = diag; changed = true; }
 
 // forget what was sent more than 3 days ago
