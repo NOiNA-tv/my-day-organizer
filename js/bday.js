@@ -28,7 +28,7 @@ export function waDigits(phone) {
   return d.length >= 9 ? d : '';
 }
 const pretty = phone => { const d = waDigits(phone); return d.startsWith('972') ? '0' + d.slice(3).replace(/(\d{2})(\d{3})(\d+)/, '$1-$2-$3') : '+' + d; };
-const waLink = (phone, name) => `https://wa.me/${waDigits(phone)}?text=${encodeURIComponent(`מלאאאן מזל טוב${name ? `, ${name.split(' ')[0]}` : ''}!\n✨🎉🥳🎂🎊🎈`)}`;
+export const waLink = (phone, name) => `https://wa.me/${waDigits(phone)}?text=${encodeURIComponent(`מלאאאן מזל טוב${name ? `, ${name.split(' ')[0]}` : ''}!\n✨🎉🥳🎂🎊🎈`)}`;
 
 const cache = new Map(); // key → { name, phones } | null
 async function lookup(ev) {
@@ -94,4 +94,10 @@ export async function editBirthday(ev, pre) {
   });
 }
 
+// for the notification: who and which number, without asking anything
+export async function birthdayContact(ev) {
+  const r = await lookup(ev).catch(() => null);
+  const name = (r?.name || nameFromTitle(ev.title)).split(' ')[0];
+  return r?.phones?.length && !r.needsAccess ? { name, phone: r.phones[0], wa: waLink(r.phones[0], name) } : { name };
+}
 export const birthdayById = id => state.events.find(e => e.id === id);

@@ -229,7 +229,7 @@ export function openHabitEditor(id = null, { onDone } = {}) {
         <button class="inp time-btn" data-hed-remind ${s.type === 'none' ? 'disabled' : ''}>${f.remind || 'בחירת שעה'}</button>
         ${f.remind ? `<button class="btn sm" data-hed-noremind>${icon('bellOff')}ללא</button>` : ''}
       </div>
-      <p class="small-print" style="margin-top:6px">${s.type === 'none' ? 'לאירוע עצמו כבר יש התראה ביומן.' : 'התראה בטלפון בימים שהכפתור מופיע, דרך היומן הראשי שלך.'}</p>
+      <p class="small-print" style="margin-top:6px">${s.type === 'none' ? 'לאירוע עצמו כבר יש התראה ביומן.' : 'התראה בטלפון בימים שהכפתור מופיע, עם כפתור ״בוצע״ ו״עוד שעה״. לא תגיע אם כבר סימנת.'}</p>
 
       ${!isNew ? `<div class="set-row" style="margin-top:14px"><div class="grow"><b>להציג היום במסך הראשי</b><small>גם אם היום הוא לא היום שלו</small></div>
         <button class="switch" role="switch" aria-checked="${isPinned(f, today)}" data-hed-pin aria-label="להציג היום"></button></div>` : ''}

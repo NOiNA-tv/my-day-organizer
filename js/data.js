@@ -205,23 +205,15 @@ export function toggleTask(id, { silent = false } = {}) {
 
 // ---------- snooze for an hour or two ----------
 // Google Tasks has no time of day, so a short snooze lives here (the task is hidden until then)
-// plus a tiny calendar event at that time, so the phone rings when it's back.
+// and the phone rings when it's back, through the app's notifications.
 export const snoozedUntil = id => { const t = state.snoozes[id]; return t && new Date(t) > new Date() ? new Date(t) : null; };
 
 export async function snoozeTask(id, minutes, { silent = false } = {}) {
   const t = findTask(id); if (!t) return;
   const until = new Date(Date.now() + minutes * 60000);
   state.snoozes[id] = until.toISOString(); store.set('snoozes', state.snoozes); emit();
-  const calId = state.cals.find(c => c.primary)?.id;
-  let evId = null;
-  try {
-    const ev = await api().createEvent({ calId, title: `⏰ ${t.title}`, start: until, end: new Date(until.getTime() + 10 * 60000), allDay: false, location: '', description: 'תזכורת ממה איתי היום? — המשימה חוזרת לרשימה עכשיו.', reminder: [0], snoozeFor: id });
-    evId = ev?.id || null;
-  } catch (e) { console.warn('snooze reminder', e); }
-  const undo = () => {
-    delete state.snoozes[id]; store.set('snoozes', state.snoozes); emit();
-    if (evId) api().deleteEvent({ id: evId, calId }).catch(() => {});
-  };
+  // the phone rings through the app's notifications (notify.js reads state.snoozes)
+  const undo = () => { delete state.snoozes[id]; store.set('snoozes', state.snoozes); emit(); };
   if (!silent) toast(`יחזור ב־${String(until.getHours()).padStart(2, '0')}:${String(until.getMinutes()).padStart(2, '0')}`, { undo });
   return undo;
 }
@@ -252,8 +244,8 @@ export function updateTask(id, fields) {
 }
 
 // ---------- task reminders (a time of day for a task) ----------
-// Google Tasks keeps dates only, so the time lives on a tiny helper event in the main calendar,
-// tagged with the task's id. The event rings on the phone; the app hides it and shows the time on the task.
+// Google Tasks keeps dates only, so the time lives on a tiny silent helper event in the main calendar,
+// tagged with the task's id. The app hides it, shows the time on the task, and rings through its own notifications.
 export function reminderOf(taskId) {
   const ev = state.events.find(e => e.taskRef === taskId);
   return ev ? { ev, time: ev.start } : null;
@@ -275,10 +267,10 @@ export async function setTaskReminder(taskId, date, { quiet = true } = {}) {
     return;
   }
   const calId = state.cals.find(c => c.primary)?.id;
-  const tmp = { id: 'tmp-' + uid(), calId, taskRef: taskId, title: `⏰ ${t?.title || ''}`, start: date, end, allDay: false, reminders: [0], reminder: 0, attachments: [], guests: [] };
+  const tmp = { id: 'tmp-' + uid(), calId, taskRef: taskId, title: `⏰ ${t?.title || ''}`, start: date, end, allDay: false, reminders: [], reminder: null, attachments: [], guests: [] };
   state.events.push(tmp); emit();
   try {
-    const created = await api().createEvent({ calId, title: tmp.title, start: date, end, allDay: false, location: '', description: 'תזכורת למשימה מ״מה איתי היום?״. השעה נקבעת באפליקציה.', reminder: [0], taskRef: taskId });
+    const created = await api().createEvent({ calId, title: tmp.title, start: date, end, allDay: false, location: '', description: 'השעה של משימה מ״מה איתי היום?״. ההתראה מגיעה מהאפליקציה.', reminder: [], taskRef: taskId });
     if (created?.id) tmp.id = created.id;
   } catch (e) { fail(e); }
   if (!quiet) toast(`תזכורת ב־${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`);

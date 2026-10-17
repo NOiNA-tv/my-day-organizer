@@ -8,11 +8,17 @@ import { openWizard, wizardOpen } from './wizard.js';
 import { weather, latestDigest, markDigestSeen } from './extras.js';
 import { loadPushInfo } from './push.js';
 import { loadHabits } from './habits.js';
+import { startNotify, schedulePlan, drainQueue, migrateCalendarReminders } from './notify.js';
+import { openTask } from './sheets.js';
+import { editBirthday, birthdayById } from './bday.js';
 
 const back = auth.handleRedirect();
 const params = new URLSearchParams(location.search);
 const wantWizard = params.get('wizard') || back?.returnTo || '';
-if (params.has('wizard')) history.replaceState(null, '', location.pathname);
+// deep links from notification buttons: ?tel= (dial), ?bday=, ?task=, ?habits=1
+const link = { tel: params.get('tel'), bday: params.get('bday'), task: params.get('task'), habits: params.has('habits') };
+if (link.tel) location.href = 'tel:' + link.tel.replace(/[^\d+]/g, '');
+if ([...params.keys()].some(k => ['wizard', 'tel', 'bday', 'task', 'habits'].includes(k))) history.replaceState(null, '', location.pathname);
 
 // Token expired but we've connected before → quick silent hop to Google (no UI when already consented).
 if (auth.shouldSilentRefresh()) {
@@ -45,7 +51,15 @@ async function boot() {
 
   await Promise.all([init(), loadWeather(false), latestDigest().then(d => { view.digest = d; }), loadPushInfo()]);
   render();
-  loadHabits();
+  if (link.habits) { view.habitsOpen = true; render(); }
+  if (link.task && state.tasks.some(t => t.id === link.task)) openTask(link.task);
+  if (link.bday) { const ev = birthdayById(link.bday); if (ev) editBirthday(ev); }
+  loadHabits().then(async () => {
+    await drainQueue();
+    await migrateCalendarReminders();
+    startNotify();
+    schedulePlan(3000);
+  });
 
   if (back?.error && back.error !== 'state_mismatch' && auth.everConnected) {
     console.warn('google auth', back.error);
@@ -57,11 +71,12 @@ async function boot() {
   // keep "in 25 min", the now-line and the ring fresh; resync when coming back to the app
   setInterval(() => { if (!sheetOpen() && !wizardOpen()) render(); }, 60_000);
   let hiddenAt = 0;
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) drainQueue(); }); // marks from notification buttons
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) { hiddenAt = Date.now(); return; }
     if (Date.now() - hiddenAt < 5 * 60_000) return;
     if (state.mode === 'live' && !auth.token) return auth.login({ silent: true });
-    refresh().then(loadHabits); loadWeather(false);
+    refresh().then(loadHabits).then(drainQueue).then(() => schedulePlan(2000)); loadWeather(false);
   });
 
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(e => console.warn('sw', e));

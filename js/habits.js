@@ -297,35 +297,12 @@ function nextShowDay(h, from) {
   for (let i = 0; i < 400; i++) { const d = addDays(from, i); if (shownOn({ ...h }, d) && !valueOn(h, d)) return d; }
   return null;
 }
+// Reminders now ring through the app's own notifications (notify.js reads h.remind); the hidden calendar
+// events that used to do it are removed when a habit is saved.
 export async function syncReminder(h) {
-  if (!h || !state.cals.length) return;
+  if (!h) return;
   if (h.remindEv) dropReminderEvent(h);
-  const s = h.show || { type: 'daily' };
-  if (!h.remind || s.type === 'none') { persist(); return; }
-  const [hh, mm] = h.remind.split(':').map(Number);
-  const now = new Date();
-  let start = null, rrule = '';
-  if (['daily', 'fixed', 'monthday'].includes(s.type)) {
-    const rule = { ...h, show: { ...s, emoji: false } }; // the repeating reminder follows the fixed rule only
-    start = nextShowDay(rule, startOfDay(now));
-    if (start) { start.setHours(hh, mm, 0, 0); if (start < now) { start = nextShowDay(rule, addDays(startOfDay(now), 1)); start?.setHours(hh, mm, 0, 0); } }
-    const ev = s.every || 'week', m = EVERY[ev]?.m;
-    rrule = s.type === 'daily' ? 'FREQ=DAILY' : s.type === 'monthday' ? `FREQ=MONTHLY;BYMONTHDAY=${s.day || 1}`
-      : m ? `FREQ=MONTHLY;${m > 1 ? `INTERVAL=${m};` : ''}BYDAY=${(s.days || []).map(d => '1' + RRULE_DAYS[d]).join(',')}`
-      : `FREQ=WEEKLY;${ev === '2weeks' ? 'INTERVAL=2;' : ''}BYDAY=${(s.days || []).map(d => RRULE_DAYS[d]).join(',')}`;
-  } else {
-    start = nextShowDay(h, startOfDay(now));
-    if (start) { start.setHours(hh, mm, 0, 0); if (start < now) { start = addDays(startOfDay(now), 1); start.setHours(hh, mm, 0, 0); } }
-  }
-  if (!start) { persist(); return; }
-  const calId = state.cals.find(c => c.primary)?.id;
-  const o = { calId, title: `${h.emoji} ${h.name}`, start, end: new Date(start.getTime() + 5 * 60000), allDay: false, location: '',
-    description: 'תזכורת להרגל מ״מה איתי היום?״. השעה נקבעת באפליקציה.', reminder: [0], habitRef: h.id, rrule };
-  try {
-    const ev = await api().createEvent(o);
-    h.remindEv = ev?.id || '';
-    persist();
-  } catch (e) { console.warn('habit reminder', e); }
+  persist();
 }
 
 // ---------- Google Sheet ----------

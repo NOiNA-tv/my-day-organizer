@@ -1,9 +1,9 @@
 // Service worker: offline app shell + push notifications.
-const VERSION = 'v34';
+const VERSION = 'v36';
 const SHELL = [
   './', 'index.html', 'manifest.webmanifest', 'css/app.css',
   'js/app.js', 'js/auth.js', 'js/config.js', 'js/data.js', 'js/demo.js', 'js/extras.js', 'js/google.js', 'js/icons.js',
-  'js/overlay.js', 'js/push.js', 'js/sheets.js', 'js/ui.js', 'js/util.js', 'js/voice.js', 'js/wizard.js', 'js/timepicker.js', 'js/wear.js', 'js/datepicker.js', 'js/habits.js', 'js/habitui.js', 'js/emoji.js', 'js/habitstats.js', 'js/fx.js', 'js/bday.js',
+  'js/overlay.js', 'js/push.js', 'js/sheets.js', 'js/ui.js', 'js/util.js', 'js/voice.js', 'js/wizard.js', 'js/timepicker.js', 'js/wear.js', 'js/datepicker.js', 'js/habits.js', 'js/habitui.js', 'js/emoji.js', 'js/habitstats.js', 'js/fx.js', 'js/bday.js', 'js/kv.js', 'js/notify.js',
   'icons/icon-192.png', 'icons/icon.svg',
 ];
 
@@ -27,22 +27,94 @@ self.addEventListener('fetch', e => {
   );
 });
 
+// ---------- notifications ----------
+// The GitHub job (push/send.mjs) sends a JSON payload: title, body, tag, url, up to 2 buttons, and data for them.
 self.addEventListener('push', e => {
   let d = {};
   try { d = e.data?.json() || {}; } catch { d = { body: e.data?.text() }; }
   e.waitUntil(self.registration.showNotification(d.title || 'מה איתי היום?', {
     body: d.body || '', icon: 'icons/icon-192.png', badge: 'icons/badge.png', tag: d.tag || 'daily',
-    data: { url: d.url || './' }, dir: 'rtl', lang: 'he', renotify: true,
+    data: { ...(d.data || {}), url: d.url || './', id: d.id, ids: d.ids, tag: d.tag || 'daily' },
+    actions: (d.actions || []).slice(0, 2), dir: 'rtl', lang: 'he', renotify: true,
   }));
 });
 
+// a tiny key-value store, shared with the app (js/kv.js): keys for GitHub/Google, and marks waiting for the app
+const db = () => new Promise((res, rej) => { const r = indexedDB.open('md', 1); r.onupgradeneeded = () => r.result.createObjectStore('kv'); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
+const kv = async (mode, fn) => { const d = await db(); return new Promise((res, rej) => { const t = d.transaction('kv', mode); const q = fn(t.objectStore('kv')); t.oncomplete = () => res(q?.result); t.onerror = () => rej(t.error); }); };
+const kvGet = k => kv('readonly', s => s.get(k)).catch(() => undefined);
+const kvSet = (k, v) => kv('readwrite', s => s.put(v, k)).catch(() => {});
+async function enqueue(x) { const q = (await kvGet('queue')) || []; q.push({ ...x, at: Date.now() }); await kvSet('queue', q); }
+
+// append to push-data/inbox.json in the repo, which the GitHub job reads (acks and "remind me later")
+const API = 'https://api.github.com/repos/NOiNA-tv/my-day-organizer/contents/inbox.json';
+const toB64 = str => btoa(String.fromCharCode(...new TextEncoder().encode(str)));
+const fromB64 = b => new TextDecoder().decode(Uint8Array.from(atob(b.replace(/\n/g, '')), c => c.charCodeAt(0)));
+async function inbox(entry) {
+  const tok = await kvGet('gh');
+  if (!tok) throw new Error('no key');
+  const h = { Authorization: `Bearer ${tok}`, Accept: 'application/vnd.github+json' };
+  for (let k = 0; k < 3; k++) {
+    const r = await fetch(API + '?ref=push-data', { headers: h, cache: 'no-store' });
+    let list = [], sha;
+    if (r.ok) { const j = await r.json(); sha = j.sha; try { list = JSON.parse(fromB64(j.content)); } catch { list = []; } }
+    else if (r.status !== 404) throw new Error('GitHub ' + r.status);
+    list.push({ ...entry, at: Date.now() });
+    const w = await fetch(API, { method: 'PUT', headers: { ...h, 'Content-Type': 'application/json' }, body: JSON.stringify({ message: 'From a notification', branch: 'push-data', content: toB64(JSON.stringify(list, null, 1) + '\n'), ...(sha ? { sha } : {}) }) });
+    if (w.ok) return;
+    if (w.status !== 409 && w.status !== 422) throw new Error('GitHub ' + w.status);
+  }
+  throw new Error('busy');
+}
+
+// mark a Google task done right away when the last sign-in is still fresh; otherwise the app does it on open
+async function completeTask(id, list) {
+  const t = await kvGet('gtok');
+  if (!t?.value || t.exp < Date.now() + 60000 || !id || !list) return false;
+  const r = await fetch(`https://tasks.googleapis.com/tasks/v1/lists/${list}/tasks/${id}`, { method: 'PATCH', headers: { Authorization: `Bearer ${t.value}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'completed' }) });
+  return r.ok;
+}
+
+const hhmm = ms => { const d = new Date(ms); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
+async function confirmDone(d, title, msg) {
+  const tag = d.tag || 'done';
+  await self.registration.showNotification(title, { body: msg, tag, silent: true, renotify: false, icon: 'icons/icon-192.png', badge: 'icons/badge.png', dir: 'rtl', lang: 'he', data: { url: d.url || './', tag } });
+  await new Promise(r => setTimeout(r, 4000));
+  (await self.registration.getNotifications({ tag })).forEach(n => n.close());
+}
+async function focusOrOpen(target) {
+  if (!target.startsWith(self.registration.scope)) return self.clients.openWindow(target); // e.g. the Digest site
+  const wins = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+  const w = wins.find(c => c.url.startsWith(self.registration.scope));
+  if (w) { await w.navigate(target); return w.focus(); }
+  return self.clients.openWindow(target);
+}
+
+async function act(a, d, title) {
+  const scope = self.registration.scope;
+  if (a === 'done' || a === 'plus') {
+    await enqueue({ t: 'habit', id: d.habit, day: d.day, op: a });
+    await inbox({ t: 'ack', habits: [d.habit], day: d.day }).catch(() => {});
+    return confirmDone(d, title, a === 'plus' ? 'נספר עוד אחד ➕' : 'סומן כבוצע ✓');
+  }
+  if (a === 'tdone') {
+    const synced = await completeTask(d.task, d.list).catch(() => false);
+    await enqueue({ t: 'task', id: d.task, synced });
+    return confirmDone(d, title, 'סומן כבוצע ✓');
+  }
+  if (a === 'later') {
+    const until = Date.now() + (d.later || 60) * 60000;
+    const ok = await inbox({ t: 'snooze', ids: d.ids || [d.id], until }).then(() => true, () => false);
+    return confirmDone(d, title, ok ? `אזכיר שוב ${(d.later || 60) >= 1440 ? 'מחר' : 'בעוד שעה'}, בסביבות ${hhmm(until)}` : 'לא הצלחתי לשמור את הדחייה. אפשר לנסות שוב מהאפליקציה.');
+  }
+  if (a === 'wa' && d.wa) return self.clients.openWindow(d.wa);
+  if (a === 'tel' && d.tel) return focusOrOpen(new URL('./?tel=' + encodeURIComponent(d.tel), scope).href);
+  if ((a === 'waze' || a === 'maps') && d[a]) return self.clients.openWindow(d[a]);
+  return focusOrOpen(new URL(d.url || './', scope).href);
+}
+
 self.addEventListener('notificationclick', e => {
-  e.notification.close();
-  const target = new URL(e.notification.data?.url || './', self.registration.scope).href;
-  e.waitUntil((async () => {
-    const wins = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-    const w = wins.find(c => c.url.startsWith(self.registration.scope));
-    if (w) { await w.navigate(target); return w.focus(); }
-    return self.clients.openWindow(target);
-  })());
+  const n = e.notification;
+  n.close();
+  e.waitUntil(act(e.action || '', n.data || {}, n.title));
 });

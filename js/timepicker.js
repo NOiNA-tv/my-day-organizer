@@ -1,14 +1,15 @@
-// A time picker in the app's own colours: two snap-scrolling wheels (hours · minutes in 5s).
+// A time picker in the app's own colours: two snap-scrolling wheels (hours 00–23 · minutes in 10s).
+// Reminders ring through a job that runs every few minutes, so the time reads as "around".
 import { icon } from './icons.js';
 import { haptic } from './util.js';
 
-const ROW = 44;
+const ROW = 44, STEP = 10;
 const pad = n => String(n).padStart(2, '0');
 
 export function openTimePicker({ value = '', title = 'שעת תזכורת', onSave, onClear } = {}) {
   const now = new Date();
   let [h, m] = value ? value.split(':').map(Number) : [now.getHours() + 1, 0];
-  h = ((h % 24) + 24) % 24; m = Math.round(m / 5) * 5 % 60;
+  h = ((h % 24) + 24) % 24; m = Math.round(m / STEP) * STEP; if (m === 60) { m = 0; h = (h + 1) % 24; }
 
   const scrim = document.createElement('div');
   scrim.className = 'tp-scrim';
@@ -22,9 +23,10 @@ export function openTimePicker({ value = '', title = 'שעת תזכורת', onSa
     </div>`;
   el.innerHTML = `
     <div class="tp-head">${icon('bell')}<b>${title}</b></div>
+    <p class="tp-sub">בסביבות השעה הזו, ועד כמה דקות אחרי.</p>
     <div class="tp-wheels">
       <div class="tp-band" aria-hidden="true"></div>
-      ${wheel('h', 24, 1)}<span class="tp-colon">:</span>${wheel('m', 12, 5)}
+      ${wheel('h', 24, 1)}<span class="tp-colon">:</span>${wheel('m', 60 / STEP, STEP)}
     </div>
     <div class="tp-actions">
       ${onClear ? `<button class="btn" data-tp="clear">${icon('bellOff')}ללא</button>` : ''}
@@ -35,7 +37,7 @@ export function openTimePicker({ value = '', title = 'שעת תזכורת', onSa
   requestAnimationFrame(() => { scrim.classList.add('show'); el.classList.add('show'); });
 
   const wh = el.querySelector('[data-w="h"]'), wm = el.querySelector('[data-w="m"]');
-  wh.scrollTop = h * ROW; wm.scrollTop = (m / 5) * ROW;
+  wh.scrollTop = h * ROW; wm.scrollTop = (m / STEP) * ROW;
   const read = w => Math.max(0, Math.round(w.scrollTop / ROW));
   const mark = w => {
     const i = read(w);
@@ -59,7 +61,7 @@ export function openTimePicker({ value = '', title = 'שעת תזכורת', onSa
   el.addEventListener('click', e => {
     const b = e.target.closest('[data-tp]'); if (!b) return;
     const act = b.dataset.tp;
-    if (act === 'save') onSave?.(`${pad(read(wh))}:${pad(read(wm) * 5)}`);
+    if (act === 'save') onSave?.(`${pad(read(wh))}:${pad(read(wm) * STEP)}`);
     if (act === 'clear') onClear?.();
     close();
   });

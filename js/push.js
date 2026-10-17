@@ -3,6 +3,8 @@ import { VAPID_PUBLIC_KEY } from './config.js';
 import { store, esc } from './util.js';
 import { icon } from './icons.js';
 import { paintSheet } from './overlay.js';
+import { openTimePicker } from './timepicker.js';
+import { leaveLead, planInfo, lastServerRun, schedulePlan, pipelineOn } from './notify.js';
 
 const supported = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
 
@@ -11,25 +13,31 @@ const supported = 'serviceWorker' in navigator && 'PushManager' in window && 'No
 const REPO = 'NOiNA-tv/my-day-organizer';
 const API = `https://api.github.com/repos/${REPO}/contents/`;
 export const pushInfo = { schedule: null, endpoints: [], shas: {}, saving: false, msg: '' };
-const ghToken = () => store.get('ghToken');
+export const ghToken = () => store.get('ghToken');
 const utf8b64 = str => btoa(String.fromCharCode(...new TextEncoder().encode(str)));
 const b64utf8 = b => new TextDecoder().decode(Uint8Array.from(atob(b.replace(/\n/g, '')), c => c.charCodeAt(0)));
 
-async function ghGet(path) {
-  const r = await fetch(API + path + '?ref=main', { headers: { Authorization: `Bearer ${ghToken()}`, Accept: 'application/vnd.github+json' }, cache: 'no-store' });
+// branch: 'main' for the schedule and the phone list; 'push-data' for the reminders plan (no Pages rebuilds)
+export async function ghGet(path, branch = 'main') {
+  const r = await fetch(API + path + `?ref=${branch}`, { headers: { Authorization: `Bearer ${ghToken()}`, Accept: 'application/vnd.github+json' }, cache: 'no-store' });
+  if (r.status === 404 && branch !== 'main') { delete pushInfo.shas[branch + ':' + path]; return null; }
   if (!r.ok) throw new Error(r.status === 401 ? 'המפתח לא תקין' : r.status === 404 ? 'אין גישה לקובץ (בדוק את הרשאת Contents)' : `GitHub ${r.status}`);
   const j = await r.json();
-  pushInfo.shas[path] = j.sha;
+  pushInfo.shas[branch + ':' + path] = j.sha;
   return JSON.parse(b64utf8(j.content));
 }
-async function ghPut(path, data, message) {
-  const body = { message, content: utf8b64(JSON.stringify(data, null, 2) + '\n'), sha: pushInfo.shas[path], branch: 'main' };
+export async function ghPut(path, data, message, branch = 'main') {
+  const body = { message, content: utf8b64(JSON.stringify(data, null, 2) + '\n'), branch };
+  const sha = pushInfo.shas[branch + ':' + path]; if (sha) body.sha = sha;
   const r = await fetch(API + path, { method: 'PUT', headers: { Authorization: `Bearer ${ghToken()}`, Accept: 'application/vnd.github+json', 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  if (r.status === 409 || r.status === 422) { const e = new Error('conflict'); e.conflict = true; throw e; }
   if (!r.ok) throw new Error(r.status === 403 ? 'למפתח אין הרשאת כתיבה (Contents: Read and write)' : `GitHub ${r.status}`);
-  pushInfo.shas[path] = (await r.json()).content.sha;
+  pushInfo.shas[branch + ':' + path] = (await r.json()).content.sha;
 }
+export const hasGh = () => !!ghToken();
 
 export async function loadPushInfo() {
+  lastServerRun().then(d => { pushInfo.lastRun = d; });
   try {
     if (ghToken()) {
       const [sch, subs] = await Promise.all([ghGet('push/schedule.json'), ghGet('push/subscriptions.json')]);
@@ -50,8 +58,8 @@ export function pushPanel() {
   const perm = Notification.permission;
   return `
     <div class="push-times">
-      <label><span>☀️ אשף הבוקר</span><input class="inp" type="time" data-push-time="morning" value="${sch.morning}" ${linked ? '' : 'disabled'}></label>
-      <label><span>🌙 סיכום ערב</span><input class="inp" type="time" data-push-time="evening" value="${sch.evening}" ${linked ? '' : 'disabled'}></label>
+      <label><span>☀️ אשף הבוקר</span><button class="inp time-btn" data-push-pick="morning" ${linked ? '' : 'disabled'}>${sch.morning}</button></label>
+      <label><span>🌙 סיכום ערב</span><button class="inp time-btn" data-push-pick="evening" ${linked ? '' : 'disabled'}>${sch.evening}</button></label>
     </div>
     ${pushInfo.msg ? `<p class="push-msg">${esc(pushInfo.msg)}</p>` : ''}
     ${linked ? '' : `
@@ -69,10 +77,24 @@ export function pushPanel() {
       </details>`}
     <div class="set-row">
       <div class="grow"><b>${connected ? 'הטלפון הזה מקבל התראות ✓' : perm === 'denied' ? 'ההתראות חסומות בדפדפן' : 'הטלפון הזה לא מחובר להתראות'}</b>
-        <small>${connected ? 'גם כשהאפליקציה סגורה. ההתראה יכולה להגיע עד כרבע שעה אחרי השעה שנקבעה.' : linked ? 'לחיצה אחת מחברת אותו.' : 'אחרי החיבור לגיטהאב זה נעשה בלחיצה אחת.'}</small></div>
+        <small>${connected ? 'גם כשהאפליקציה סגורה. התראות מגיעות בדרך כלל עד כמה דקות אחרי השעה שנקבעה.' : linked ? 'לחיצה אחת מחברת אותו.' : 'אחרי החיבור לגיטהאב זה נעשה בלחיצה אחת.'}</small></div>
       ${connected ? `<button class="btn sm" data-push="test">${icon('bell')}דוגמה</button>` : perm !== 'denied' ? `<button class="btn sm primary" data-push="on" ${linked || sub ? '' : 'disabled'}>${icon('bellRing')}חיבור</button>` : ''}
     </div>
+    <div class="set-row">
+      <div class="grow"><b>🚗 התראת יציאה</b><small>לאירועים עם כתובת, עם כפתורי Waze ומפות</small></div>
+      <select class="inp sm-sel" data-leave aria-label="כמה זמן לפני">${[[0, 'כבוי'], [20, '20 דק׳ לפני'], [30, 'חצי שעה לפני'], [45, '45 דק׳ לפני'], [60, 'שעה לפני'], [90, 'שעה וחצי לפני']].map(([v, l]) => `<option value="${v}" ${leaveLead() === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
+    </div>
+    ${serverNote()}
     ${linked ? `<p class="small-print"><button class="link-btn" data-push="unlink">ניתוק גיטהאב מהטלפון</button></p>` : ''}`;
+}
+
+// is the GitHub job alive, and when was the reminders list last saved
+function serverNote() {
+  const run = pushInfo.lastRun, mins = run ? Math.round((Date.now() - run) / 60000) : null;
+  const stale = mins != null && mins > 30;
+  const plan = planInfo.at ? `${planInfo.count} התראות מתוכננות לימים הקרובים · עודכן ${new Date(planInfo.at).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })}` : '';
+  return `<p class="push-msg ${stale ? 'warn' : ''}">${mins == null ? '' : stale ? `⚠️ שרת ההתראות לא רץ כבר ${mins >= 120 ? `${Math.round(mins / 60)} שעות` : `${mins} דק׳`}. התראות עלולות להתעכב.` : `שרת ההתראות פעיל · רץ לפני ${mins < 1 ? 'רגע' : `${mins} דק׳`}`}
+    ${plan ? `<br>${plan}` : pipelineOn() ? '<br>רשימת ההתראות תישמר בעוד רגע.' : ''}${planInfo.error ? `<br>שמירת ההתראות נכשלה: ${esc(planInfo.error)}` : ''}</p>`;
 }
 
 async function saveTimes(kind, value) {
@@ -93,6 +115,7 @@ async function registerDevice(sub) {
 }
 
 document.addEventListener('change', e => {
+  if (e.target.matches('[data-leave]')) { store.set('leaveLead', Number(e.target.value)); schedulePlan(0); return; }
   const t = e.target.closest('[data-push-time]');
   if (t && t.value) saveTimes(t.dataset.pushTime, t.value);
 });
@@ -100,6 +123,8 @@ document.addEventListener('change', e => {
 const b64 = s => { const p = '='.repeat((4 - s.length % 4) % 4); const r = atob((s + p).replace(/-/g, '+').replace(/_/g, '/')); return Uint8Array.from(r, c => c.charCodeAt(0)); };
 
 document.addEventListener('click', async e => {
+  const pk = e.target.closest('[data-push-pick]');
+  if (pk) { const k = pk.dataset.pushPick; openTimePicker({ value: pk.textContent.trim(), title: k === 'morning' ? 'אשף הבוקר' : 'סיכום ערב', onSave: v => saveTimes(k, v) }); return; }
   const b = e.target.closest('[data-push]'); if (!b) return;
   const act = b.dataset.push;
   try {

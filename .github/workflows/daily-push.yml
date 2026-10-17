@@ -1,11 +1,12 @@
-name: Daily push (morning & evening)
+name: Daily push (notifications)
 
 # GitHub's own schedule is best-effort (it can skip hours), so an external timer (cron-job.org) also calls
-# workflow_dispatch with kind=auto every 15 minutes. push/send.mjs decides whether anything is due, using the
-# hours in push/schedule.json (Jerusalem time); what was already sent today is kept on the `push-state` branch.
+# workflow_dispatch with kind=auto every 5 minutes. push/send.mjs decides what is due: the morning/evening nudges
+# (push/schedule.json), the app's sealed reminders plan and the buttons' inbox (`push-data` branch), weather and
+# the Design Digest. What was already sent is kept on the `push-state` branch.
 on:
   schedule:
-    - cron: '*/15 * * * *'
+    - cron: '*/5 * * * *'
   workflow_dispatch:
     inputs:
       kind:
@@ -27,12 +28,18 @@ jobs:
       - name: Load state
         run: |
           git fetch origin push-state:push-state 2>/dev/null && git show push-state:state.json > /tmp/state.json || echo '{}' > /tmp/state.json
+          git fetch origin push-data:push-data 2>/dev/null || true
+          git show push-data:plan.json > /tmp/plan.json 2>/dev/null || echo '{}' > /tmp/plan.json
+          git show push-data:inbox.json > /tmp/inbox.json 2>/dev/null || echo '[]' > /tmp/inbox.json
       - run: npm install --no-save web-push@3
       - run: node push/send.mjs
         env:
           VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
           KIND: ${{ github.event.inputs.kind }}
           STATE_FILE: /tmp/state.json
+          PLAN_FILE: /tmp/plan.json
+          INBOX_FILE: /tmp/inbox.json
+          TZ: Asia/Jerusalem
       - name: Save state
         run: |
           if [ -f /tmp/state.changed ]; then

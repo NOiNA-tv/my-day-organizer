@@ -5,10 +5,11 @@ import {
   state, calById, calColor, deleteEvent, toggleTask, updateTask, deferTask, deleteTask, addTask, addEvent,
   saveSettings, refresh, APP_PALETTE, allTaskRoots, emit, api, reminderOf, setTaskReminder, moveTaskToList,
 } from './data.js';
-import { esc, hm, longDate, dayName, ymd, fromYmd, addDays, addMonths, startOfDay, countdown, relDayLabel, daysBetween, daysLeftLabel } from './util.js';
+import { store, esc, hm, longDate, dayName, ymd, fromYmd, addDays, addMonths, startOfDay, countdown, relDayLabel, daysBetween, daysLeftLabel } from './util.js';
 import { voiceSupported, listen, parseHebrew } from './voice.js';
 import { auth } from './auth.js';
 import { pushPanel, loadPushInfo } from './push.js';
+import { pipelineOn, writePlan, planInfo } from './notify.js';
 import { openTimePicker } from './timepicker.js';
 import { openDatePicker } from './datepicker.js';
 
@@ -441,7 +442,7 @@ export function openSettings({ onLogin } = {}) {
       </div>
 
       <div class="field-label">${icon('bell')}תזכורות</div>
-      <div class="set-row"><div class="grow"><b>תזכורת לדוגמה</b><small>יוצר אירוע קצר ביומן הראשי בעוד 2 דקות, עם תזכורת דקה לפני. כך תשמע ותראה בדיוק איך תזכורת מגיעה לטלפון.</small></div>
+      <div class="set-row"><div class="grow"><b>תזכורת לדוגמה</b><small>עוברת את כל הדרך: נשמרת ברשימת ההתראות, והשרת שולח אותה בעוד כמה דקות, עם כפתורים.</small></div>
         <button class="btn sm" data-test-reminder>${icon('bellRing')}שליחה</button></div>
 
       <div class="field-label">${icon('mail')}מיילים לטיפול</div>
@@ -464,7 +465,7 @@ export function openSettings({ onLogin } = {}) {
       <div class="field-label">${icon('bellRing')}התראות בוקר וערב</div>
       ${pushPanel()}
 
-      <p class="small-print">גוגל משימות שומרות תאריך בלי שעה. תזכורת למשימה נשמרת כאירוע קטן (⏰) ביומן הראשי שמצלצל בשעה שנבחרה. באפליקציה הוא מוסתר, ובגוגל קלנדר הוא נראה כאירוע של 5 דקות.<br>${state.lastSync ? `סונכרן לאחרונה ב־${hm(state.lastSync)}.` : ''}</p>`;
+      <p class="small-print">גוגל משימות שומרות תאריך בלי שעה. השעה של משימה נשמרת כאירוע קטן ושקט (⏰) ביומן הראשי. ההתראה עצמה מגיעה מהאפליקציה, עם כפתורי ״בוצע״ ו״מחר״.<br>${state.lastSync ? `סונכרן לאחרונה ב־${hm(state.lastSync)}.` : ''}</p>`;
   });
   const el = document.querySelector('.sheet');
   el.addEventListener('click', e => {
@@ -502,13 +503,11 @@ export function openSettings({ onLogin } = {}) {
 }
 
 async function sendTestReminder(btn) {
-  const calId = state.cals.find(c => c.primary)?.id;
-  const start = new Date(Date.now() + 2 * 60000); start.setSeconds(0, 0);
-  btn.disabled = true; btn.textContent = 'שולח…';
-  try {
-    await api().createEvent({ calId, title: '🔔 תזכורת לדוגמה', start, end: new Date(start.getTime() + 5 * 60000), allDay: false, location: '', description: 'נוצר מ״מה איתי היום?״ כדי לשמוע איך נשמעת תזכורת. האירוע יימחק לבד.', reminder: [1], snoozeFor: 'test' });
-    btn.textContent = `תגיע ב־${hm(new Date(start.getTime() - 60000))} ✓`;
-  } catch (e) { btn.textContent = 'לא הצליח'; console.error(e); }
+  if (!pipelineOn()) { btn.textContent = 'קודם לחבר התראות למטה'; return; }
+  btn.disabled = true; btn.textContent = 'שומר…';
+  store.set('testPush', Date.now() + 60000);
+  await writePlan({ force: true });
+  btn.textContent = planInfo.error ? 'לא הצליח' : 'תגיע בעוד כמה דקות ✓';
 }
 
 export function applyTheme() {
