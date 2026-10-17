@@ -1,5 +1,5 @@
 {
-  "at": "2026-10-17T17:04:17.256Z",
+  "at": "2026-10-17T17:04:21.658Z",
   "ver": "v41",
   "ua": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Mobile Safari/537.36",
   "standalone": true,
@@ -10,6 +10,17 @@
       "✗",
       "הרשאת התראות",
       "default"
+    ],
+    [
+      "✗",
+      "התראה מקומית נכשלה",
+      "Failed to execute 'showNotification' on 'ServiceWorkerRegistration': No notification permission has been granted for this origin."
+    ],
+    [
+      "✓",
+      "שרת ההתראות רץ",
+      "לפני 4 דק׳"
     ]
-  ]
+  ],
+  "check": true
 }
