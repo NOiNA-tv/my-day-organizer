@@ -40,8 +40,9 @@ function unseal(b) {
   d.setAuthTag(ct.subarray(ct.length - 16));
   return JSON.parse(Buffer.concat([d.update(ct.subarray(0, ct.length - 16)), d.final()]).toString('utf8'));
 }
-let plan = { items: [], made: 0, geo: null };
-try { const f = readJson(process.env.PLAN_FILE, null); if (f?.blob) plan = unseal(f.blob); } catch (e) { console.error('plan unreadable:', e.message); }
+let plan = { items: [], made: 0, geo: null }, planErr = '';
+try { const f = readJson(process.env.PLAN_FILE, null); if (f?.blob) plan = unseal(f.blob); else planErr = f ? 'no blob' : 'no plan file'; }
+catch (e) { planErr = e.message; console.error('plan unreadable:', e.message); }
 const inbox = readJson(process.env.INBOX_FILE, []) || [];
 
 const out = []; // [payload, onSent]
@@ -161,6 +162,10 @@ else {
     if (ok) { onSent(); changed = true; }
   }
 }
+
+// a small health note, readable from outside (logs aren't): which plan this job saw, and whether it could read it
+const diag = { made: plan.made || 0, items: (plan.items || []).length, err: planErr };
+if (JSON.stringify(state.diag || {}) !== JSON.stringify(diag)) { state.diag = diag; changed = true; }
 
 // forget what was sent more than 3 days ago
 for (const [id, t] of Object.entries(state.sent)) if (+now - t > 3 * 864e5) { delete state.sent[id]; changed = true; }

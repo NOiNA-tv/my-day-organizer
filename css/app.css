@@ -1083,3 +1083,5 @@ select.inp { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.
 .fx-wave-bad { border-color: #6b1450; box-shadow: 0 0 14px rgba(110,20,90,.7), inset 0 0 10px rgba(110,20,90,.6); }
 .fx-vignette { position: absolute; inset: 0; background: radial-gradient(ellipse at center, transparent 35%, rgba(20,0,20,.55)); }
 .hg-emo { font-size: 26px; background: none; border: 0; padding: 0; align-self: start; }
+.btn.busy { opacity: .75; animation: btn-busy 1s ease-in-out infinite; }
+@keyframes btn-busy { 50% { opacity: .45; } }
