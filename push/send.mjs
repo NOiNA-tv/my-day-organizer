@@ -46,7 +46,7 @@ catch (e) { planErr = e.message; console.error('plan unreadable:', e.message); }
 const inbox = readJson(process.env.INBOX_FILE, []) || [];
 
 const out = []; // [payload, onSent]
-let sendErr = '';
+let sendErr = '', okAt = 0;
 
 // ---------- 1. morning / evening ----------
 const forced = ['morning', 'evening'].includes(process.env.KIND) ? process.env.KIND : null;
@@ -160,12 +160,15 @@ else {
       catch (e) { console.error('failed', e.statusCode, e.body); sendErr = `${e.statusCode || ''} ${String(e.body || e.message).slice(0, 120)}`.trim(); }
     }
     console.log(`sent "${msg.title}" to ${ok}/${DRY ? 1 : subs.length}`);
-    if (ok) { onSent(); changed = true; }
+    if (ok) { onSent(); changed = true; okAt = +now; }
   }
 }
 
 // a small health note, readable from outside (logs aren't): which plan this job saw, and whether it could read it
-const diag = { made: plan.made || 0, items: (plan.items || []).length, err: planErr, ...(sendErr ? { sendErr, sendAt: +now } : state.diag?.sendErr ? { sendErr: state.diag.sendErr, sendAt: state.diag.sendAt } : {}) };
+const prev = state.diag || {};
+const diag = { made: plan.made || 0, items: (plan.items || []).length, err: planErr, okAt: okAt || prev.okAt || 0 };
+if (sendErr) Object.assign(diag, { sendErr, sendAt: +now });
+else if (prev.sendErr && !okAt) Object.assign(diag, { sendErr: prev.sendErr, sendAt: prev.sendAt }); // a success clears the old error
 if (JSON.stringify(state.diag || {}) !== JSON.stringify(diag)) { state.diag = diag; changed = true; }
 
 // forget what was sent more than 3 days ago

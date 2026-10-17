@@ -1,5 +1,5 @@
 // Morning / evening push. The phone subscribes here; a scheduled GitHub Action sends the pushes.
-import { VAPID_PUBLIC_KEY } from './config.js';
+import { VAPID_PUBLIC_KEY, APP_VERSION } from './config.js';
 import { store, esc } from './util.js';
 import { icon } from './icons.js';
 import { paintSheet } from './overlay.js';
@@ -47,25 +47,83 @@ export async function loadPushInfo() {
       pushInfo.schedule = sch; pushInfo.endpoints = subs.map(x => x.endpoint);
     }
   } catch (e) { pushInfo.msg = e.message; }
-  // the phone's real, current push address. Browsers expire and renew these; a stale one gets "410 Gone"
-  // and nothing arrives. Keep the stored copy and the server's list in step with the real one.
+  await ensureSub().catch(e => console.warn('push address', e));
+  report().catch(() => {});
+}
+
+// ---------- the phone's push address ----------
+// Browsers expire and renew these; a stale one gets "410 Gone" from Google and nothing arrives.
+// Keep the stored copy and the server's list in step with the real one. Every step is logged for the check below.
+const swReady = () => Promise.race([navigator.serviceWorker.ready, new Promise((_, rej) => setTimeout(() => rej(new Error('שירות הרקע לא עלה')), 8000))]);
+const log = [];
+const step = (ok, label, detail = '') => { log.push({ ok, label, detail, at: Date.now() }); return ok; };
+export async function ensureSub({ fresh = false } = {}) {
+  log.length = 0;
+  if (!supported) { step(false, 'הדפדפן לא תומך בהתראות'); return null; }
+  step(Notification.permission === 'granted', 'הרשאת התראות', Notification.permission);
+  if (Notification.permission !== 'granted') return null;
+  const reg = await swReady();
+  step(!!reg.active, 'שירות הרקע (service worker) פעיל', reg.active?.scriptURL?.split('/').pop() || '');
+  let s = await reg.pushManager.getSubscription();
+  step(!!s, 'כתובת התראות קיימת בטלפון', s ? '…' + s.endpoint.slice(-12) : 'אין');
+  const diag = ghToken() ? await ghGet('state.json', 'push-state').then(x => x?.diag).catch(() => null) : null;
+  pushInfo.diag = diag;
+  const dead = diag?.sendErr && /^(404|410)/.test(diag.sendErr) && diag.sendAt > (store.get('subRenewedAt') || 0);
+  if (s && (fresh || dead)) {
+    step(true, dead ? 'השרת דיווח שהכתובת פגה: מחדש' : 'מחדש כתובת', diag?.sendErr || '');
+    await s.unsubscribe().catch(e => step(false, 'ביטול הכתובת הישנה', e.message));
+    s = null; store.set('subRenewedAt', Date.now());
+  }
+  if (!s) {
+    try { s = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64(VAPID_PUBLIC_KEY) }); step(true, 'נוצרה כתובת חדשה', '…' + s.endpoint.slice(-12)); }
+    catch (e) { step(false, 'יצירת כתובת חדשה נכשלה', e.message); return null; }
+  }
+  const live = s.toJSON();
+  store.set('pushSub', live);
+  if (!ghToken()) { step(false, 'אין חיבור לגיטהאב בטלפון'); return live; }
+  if (!pushInfo.subs) { try { pushInfo.subs = await ghGet('push/subscriptions.json'); pushInfo.endpoints = pushInfo.subs.map(x => x.endpoint); } catch (e) { step(false, 'קריאת רשימת הטלפונים', e.message); return live; } }
+  if (!pushInfo.endpoints.includes(live.endpoint) || pushInfo.endpoints.length > 1) {
+    try { await registerDevice(live); step(true, 'הכתובת נרשמה בשרת'); }
+    catch (e) { step(false, 'רישום הכתובת בשרת נכשל', e.message); return live; }
+  }
+  step(pushInfo.endpoints.includes(live.endpoint), 'השרת שולח לכתובת הנוכחית');
+  return live;
+}
+
+// what this phone sees, saved to push-data/device.json so problems can be read from outside
+async function report(extra = {}) {
+  if (!ghToken()) return;
+  const data = { at: new Date().toISOString(), ver: APP_VERSION, ua: navigator.userAgent.slice(0, 160), standalone: matchMedia('(display-mode: standalone)').matches,
+    perm: supported ? Notification.permission : 'unsupported', endpoint: store.get('pushSub')?.endpoint?.slice(-16) || '', steps: log.map(x => [x.ok ? '✓' : '✗', x.label, x.detail]), ...extra };
+  for (let k = 0; k < 2; k++) {
+    try { await ghGet('device.json', 'push-data'); await ghPut('device.json', data, 'Device report', 'push-data'); return; }
+    catch (e) { if (!e.conflict) return; }
+  }
+}
+
+// the full check in settings: each step on screen, ✓ or ✗
+export const checkState = { running: false, rows: [] };
+async function fullCheck() {
+  checkState.running = true; checkState.rows = []; paintSheet();
+  const live = await ensureSub({ fresh: true }).catch(e => { step(false, 'שגיאה', e.message); return null; });
+  // a notification shown by the phone itself, no server: proves the phone can display them
   try {
-    if (supported && Notification.permission === 'granted') {
-      const reg = await navigator.serviceWorker.ready;
-      let s = await reg.pushManager.getSubscription();
-      // the push job notes when the address it has is dead (410/404): start over with a fresh one
-      const diag = ghToken() ? await ghGet('state.json', 'push-state').then(x => x?.diag).catch(() => null) : null;
-      if (s && diag?.sendErr && /^(404|410)/.test(diag.sendErr) && diag.sendAt > (store.get('subRenewedAt') || 0)) {
-        await s.unsubscribe().catch(() => {}); s = null; store.set('subRenewedAt', Date.now());
-      }
-      if (!s) s = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64(VAPID_PUBLIC_KEY) });
-      const live = s.toJSON(), old = store.get('pushSub')?.endpoint || null;
-      store.set('pushSub', live);
-      if (ghToken() && pushInfo.subs && (!pushInfo.endpoints.includes(live.endpoint) || (old && old !== live.endpoint && pushInfo.endpoints.includes(old)))) {
-        await registerDevice(live, old);
-      }
-    } else await recoverSub();
-  } catch (e) { console.warn('push address', e); }
+    const reg = await swReady();
+    await reg.showNotification('🔔 בדיקה מקומית', { body: 'אם רואים את זה, הטלפון מציג התראות של האפליקציה.', tag: 'local-check', icon: 'icons/icon-192.png', badge: 'icons/badge.png', dir: 'rtl', lang: 'he' });
+    step(true, 'התראה מקומית נשלחה (אמורה להופיע עכשיו)');
+  } catch (e) { step(false, 'התראה מקומית נכשלה', e.message); }
+  const run = await lastServerRun();
+  const mins = run ? Math.round((Date.now() - run) / 60000) : null;
+  step(mins != null && mins <= 15, 'שרת ההתראות רץ', mins == null ? 'לא ידוע' : `לפני ${mins} דק׳`);
+  if (live && ghToken()) {
+    store.set('testPush', Date.now() + 60000);
+    await writePlan({ force: true });
+    step(!planInfo.error, 'תזכורת לדוגמה נשמרה לשליחה', planInfo.error || 'תגיע תוך כמה דקות');
+  }
+  checkState.rows = [...log];
+  checkState.running = false;
+  await report({ check: true });
+  paintSheet();
 }
 
 export function pushPanel() {
@@ -103,6 +161,11 @@ export function pushPanel() {
       <div class="grow"><b>🚗 התראת יציאה</b><small>לאירועים עם כתובת, עם כפתורי Waze ומפות</small></div>
       <select class="inp sm-sel" data-leave aria-label="כמה זמן לפני">${[[0, 'כבוי'], [20, '20 דק׳ לפני'], [30, 'חצי שעה לפני'], [45, '45 דק׳ לפני'], [60, 'שעה לפני'], [90, 'שעה וחצי לפני']].map(([v, l]) => `<option value="${v}" ${leaveLead() === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
     </div>
+    <div class="set-row">
+      <div class="grow"><b>בדיקת התראות</b><small>בודקת כל שלב, מחדשת את הכתובת של הטלפון ושולחת תזכורת לדוגמה</small></div>
+      <button class="btn sm ${checkState.running ? 'busy' : ''}" data-push="check" ${checkState.running ? 'disabled' : ''}>${checkState.running ? 'בודק…' : 'בדיקה'}</button>
+    </div>
+    ${checkState.rows.length ? `<ul class="push-check">${checkState.rows.map(r => `<li class="${r.ok ? 'ok' : 'bad'}"><span>${r.ok ? '✓' : '✗'}</span><b>${esc(r.label)}</b>${r.detail ? `<small>${esc(r.detail)}</small>` : ''}</li>`).join('')}</ul>` : ''}
     ${serverNote()}
     ${linked ? `<p class="small-print"><button class="link-btn" data-push="unlink">ניתוק גיטהאב מהטלפון</button></p>` : ''}`;
 }
@@ -113,6 +176,7 @@ function serverNote() {
   const stale = mins != null && mins > 30;
   const plan = planInfo.at ? `${planInfo.count} התראות מתוכננות לימים הקרובים · עודכן ${new Date(planInfo.at).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })}` : '';
   return `<p class="push-msg ${stale ? 'warn' : ''}">${mins == null ? '' : stale ? `⚠️ שרת ההתראות לא רץ כבר ${mins >= 120 ? `${Math.round(mins / 60)} שעות` : `${mins} דק׳`}. התראות עלולות להתעכב.` : `שרת ההתראות פעיל · רץ לפני ${mins < 1 ? 'רגע' : `${mins} דק׳`}`}
+    ${pushInfo.diag?.okAt ? `<br>התראה נשלחה בהצלחה לאחרונה: ${new Date(pushInfo.diag.okAt).toLocaleString('he-IL', { weekday: 'short', hour: '2-digit', minute: '2-digit' })}` : ''}${pushInfo.diag?.sendErr && pushInfo.diag.sendAt > (pushInfo.diag.okAt || 0) ? `<br>⚠️ שליחה אחרונה נכשלה: ${esc(pushInfo.diag.sendErr)}` : ''}
     ${plan ? `<br>${plan}` : pipelineOn() ? '<br>רשימת ההתראות תישמר בעוד רגע.' : ''}${planInfo.error ? `<br>שמירת ההתראות נכשלה: ${esc(planInfo.error)}` : ''}</p>`;
 }
 
@@ -127,13 +191,11 @@ async function saveTimes(kind, value) {
   pushInfo.saving = false; paintSheet();
 }
 
-// replace: drop this phone's old address (the browser renews it now and then), add the current one
-async function registerDevice(sub, old = null) {
-  let subs = await ghGet('push/subscriptions.json');
-  const before = subs.length;
-  if (old && old !== sub.endpoint) subs = subs.filter(x => x.endpoint !== old);
-  if (!subs.some(x => x.endpoint === sub.endpoint)) subs.push(sub);
-  if (subs.length !== before || !before || old) await ghPut('push/subscriptions.json', subs, 'Connect a phone for push');
+// one person, one phone: the list is just this phone's current address (old, expired ones only cause 410s)
+async function registerDevice(sub) {
+  await ghGet('push/subscriptions.json');
+  const subs = [sub];
+  await ghPut('push/subscriptions.json', subs, 'Connect a phone for push');
   pushInfo.endpoints = subs.map(x => x.endpoint);
 }
 
@@ -165,9 +227,10 @@ document.addEventListener('click', async e => {
       const sub = (await reg.pushManager.getSubscription()) || await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64(VAPID_PUBLIC_KEY) });
       store.set('pushSub', sub.toJSON());
       if (ghToken()) { pushInfo.msg = 'מחבר…'; paintSheet(); await registerDevice(sub.toJSON()); pushInfo.msg = 'הטלפון מחובר ✓'; }
+    } else if (act === 'check') { await fullCheck(); return;
     } else if (act === 'sample') {
       // all the way through: saved in the plan, sent by the job in a few minutes, with buttons
-      await recoverSub();
+      await ensureSub().catch(() => {});
       const miss = pipelineMissing();
       if (miss) { pushInfo.msg = miss; return paintSheet(); }
       b.disabled = true; b.classList.add('busy'); b.textContent = 'שולח…';
