@@ -19,5 +19,5 @@ export const REDIRECT_URI = location.origin + location.pathname.replace(/index\.
 // Web Push public key (VAPID). The private half lives only in a GitHub Actions secret.
 export const VAPID_PUBLIC_KEY = 'BO3LhTyykcgc9YcqYjOGkLZvleN10ViGZyqvhYMHM_iOx3o8HKDxdw5T5hjDnLN0wgGLxAM8YLnPFTTcaSoABoA';
 
-export const APP_VERSION = 'v42'; // keep in step with VERSION in sw.js
+export const APP_VERSION = 'v43'; // keep in step with VERSION in sw.js
 export const DIGEST_URL = '/design-digest/';

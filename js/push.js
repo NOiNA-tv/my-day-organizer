@@ -68,7 +68,13 @@ export async function enableNotifications() {
   return !!live && pushInfo.endpoints.includes(live.endpoint);
 }
 
-export async function ensureSub({ fresh = false } = {}) {
+// one at a time: opening the app and a tap on "בדיקה" could otherwise renew twice and trip over each other
+let ensuring = null;
+export function ensureSub(opts = {}) {
+  if (!ensuring) ensuring = ensureSubOnce(opts).finally(() => { ensuring = null; });
+  return ensuring;
+}
+async function ensureSubOnce({ fresh = false } = {}) {
   log.length = 0;
   if (!supported) { step(false, 'הדפדפן לא תומך בהתראות'); return null; }
   step(Notification.permission === 'granted', 'הרשאת התראות', Notification.permission);
