@@ -23,9 +23,25 @@ export const DURS = {
   '3m': { label: 'שלושה חודשים', m: 3 }, '6m': { label: 'חצי שנה', m: 6 }, '1y': { label: 'שנה', m: 12 },
 };
 export const SHOW_TYPES = {
-  daily: 'כל יום', weekday: 'בימים קבועים בשבוע', biweek: 'יום קבוע, פעם בשבועיים', monthday: 'יום קבוע בחודש',
-  since: 'כשעבר זמן מאז הפעם האחרונה', until: 'כשמתקרב מועד היעד', emoji: 'ביום שיש ביומן אירוע עם האימוג׳י', wizard: 'רק כשבוחרים באשף',
+  daily: 'כל יום', fixed: 'יום קבוע במועד קבוע', since: 'כעבור תקופה מהמועד שעבר', until: 'כשמתקרב מועד היעד',
+  none: 'רק לפי היומן', // offered only when the emoji switch is on
 };
+// "fixed": chosen weekdays, every week / 2 weeks, or the first such weekday of every N months
+export const EVERY = {
+  week: { label: 'כל שבוע' }, '2weeks': { label: 'כל שבועיים' }, month: { label: 'כל חודש', m: 1 }, '2months': { label: 'כל חודשיים', m: 2 },
+  '3months': { label: 'כל 3 חודשים', m: 3 }, '6months': { label: 'כל חצי שנה', m: 6 }, year: { label: 'כל שנה', m: 12 },
+};
+// older shapes → current ones (weekday / biweek / emoji / wizard)
+export function normShow(s) {
+  s = { ...(s || { type: 'daily' }) };
+  if (s.type === 'weekday') return { type: 'fixed', days: s.days || [], every: 'week', ...(s.emoji ? { emoji: true } : {}) };
+  if (s.type === 'biweek') return { type: 'fixed', days: s.days || [], every: '2weeks', ...(s.anchor ? { anchor: s.anchor } : {}), ...(s.emoji ? { emoji: true } : {}) };
+  if (s.type === 'emoji') return { type: 'none', emoji: true };
+  if (s.type === 'wizard') return { type: 'none' };
+  return s;
+}
+const monthIdx = d => d.getFullYear() * 12 + d.getMonth();
+const ymIdx = s => { const [y, m] = String(s).split('-').map(Number); return y * 12 + m - 1; };
 const DAYS_SHORT = ['א׳', 'ב׳', 'ג׳', 'ד׳', 'ה׳', 'ו׳', 'ש׳'];
 const ANCHOR = new Date(2026, 0, 4); // a Sunday: two-week blocks count from here
 
@@ -39,18 +55,18 @@ const seed = () => {
   const social = { group: 'פנאי וחברה' };
   return [
     h('חדר כושר', '🏋️', 3, 'week', { type: 'daily' }),
-    h('בישולים', '🍳', 1, 'week', { type: 'weekday', days: [5] }),
-    h('גילוח', '🪒', 1, 'week', { type: 'weekday', days: [2] }),
+    h('בישולים', '🍳', 1, 'week', { type: 'fixed', days: [5], every: 'week' }),
+    h('גילוח', '🪒', 1, 'week', { type: 'fixed', days: [2], every: 'week' }),
     h('ניקיונות', '🧹', 1, '2weeks', { type: 'since', n: '2w' }),
     h('פסיליום', '🌾', 5, '2weeks', { type: 'daily' }),
     h('תספורת', '💈', 1, '2months', { type: 'until', n: '1w' }),
     h('בדיקות דם וחידוש מרשם', '🩸', 1, '3months', { type: 'until', n: '2w' }),
-    h('שיננית', '🦷', 1, '6months', { type: 'emoji' }),
-    h('הצגה', '🎭', 3, 'month', { type: 'emoji' }, social),
-    h('מסיבה', '🪩', 3, 'month', { type: 'emoji' }, social),
-    h('הופעה', '🎤', 3, 'month', { type: 'emoji' }, social),
-    h('סרט', '🎬', 3, 'month', { type: 'emoji' }, social),
-    h('ישיבה', '🍻', 3, 'month', { type: 'emoji' }, social),
+    h('שיננית', '🦷', 1, '6months', { type: 'none', emoji: true }),
+    h('הצגה', '🎭', 3, 'month', { type: 'none', emoji: true }, social),
+    h('מסיבה', '🪩', 3, 'month', { type: 'none', emoji: true }, social),
+    h('הופעה', '🎤', 3, 'month', { type: 'none', emoji: true }, social),
+    h('סרט', '🎬', 3, 'month', { type: 'none', emoji: true }, social),
+    h('ישיבה', '🍻', 3, 'month', { type: 'none', emoji: true }, social),
     h('וויד', '🌿', null, null, { type: 'daily' }, { kind: 'count' }),
   ].map((x, i) => ({ ...x, order: i }));
 };
@@ -58,7 +74,7 @@ const seed = () => {
 // ---------- state ----------
 const saved = store.get('habits');
 export const H = {
-  list: saved?.list || seed(),
+  list: (saved?.list || seed()).map(h => ({ ...h, show: normShow(h.show) })),
   log: saved?.log || {}, // 'YYYY-MM-DD|id' → number (1 for a done toggle)
   pins: saved?.pins || {}, // 'YYYY-MM-DD' → [ids] picked in the wizard for that day
   contacts: saved?.contacts || {}, // birthday person key → { name, phone } (set or fixed by hand)
@@ -156,11 +172,18 @@ export const isPinned = (h, d) => (H.pins[ymd(d)] || []).includes(h.id);
 
 export function shownOn(h, d) {
   if (valueOn(h, d) > 0 || isPinned(h, d)) return true;
-  const s = h.show || { type: 'daily' }, dow = d.getDay();
+  const s = normShow(h.show), dow = d.getDay();
+  if (s.emoji && emojiEventOn(h, d)) return true;
   switch (s.type) {
     case 'daily': return true;
-    case 'weekday': return (s.days || []).includes(dow);
-    case 'biweek': return (s.days || []).includes(dow) && Math.floor(daysBetween(fromYmd(s.anchor || ymd(ANCHOR)), weekStart(d)) / 7) % 2 === 0;
+    case 'fixed': {
+      if (!(s.days || []).includes(dow)) return false;
+      const ev = s.every || 'week';
+      if (ev === 'week') return true;
+      if (ev === '2weeks') { const w = Math.floor(daysBetween(fromYmd(s.anchor || ymd(ANCHOR)), weekStart(d)) / 7); return ((w % 2) + 2) % 2 === 0; }
+      const k = EVERY[ev]?.m || 1, diff = monthIdx(d) - (s.anchor ? ymIdx(s.anchor) : monthIdx(d));
+      return d.getDate() <= 7 && ((diff % k) + k) % k === 0; // the first such weekday of the month
+    }
     case 'monthday': { const last = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate(); return d.getDate() === Math.min(s.day || 1, last); }
     case 'since': { const l = lastDoneBefore(h, d); return !l || startOfDay(d) >= addDur(l, s.n || '1w'); }
     case 'until': {
@@ -168,8 +191,7 @@ export function shownOn(h, d) {
       const l = lastDoneBefore(h, d);
       return !l || daysBetween(d, addPeriod(l, h.period)) <= daysBetween(new Date(2000, 0, 1), addDur(new Date(2000, 0, 1), s.n || '1w'));
     }
-    case 'emoji': return emojiEventOn(h, d);
-    default: return false; // wizard: only when picked
+    default: return false; // none: only by calendar emoji, or when picked in the wizard
   }
 }
 export const habitsOn = d => sorted().filter(h => shownOn(h, d));
@@ -202,13 +224,19 @@ export function statusText(h, ref = new Date()) {
 }
 export const freqText = h => (!h.times ? 'ספירה יומית' : `${h.times === 1 ? 'פעם' : h.times === 2 ? 'פעמיים' : `${h.times} פעמים`} ${PERIODS[h.period].label}`);
 export function showText(h) {
-  const s = h.show || { type: 'daily' };
-  if (s.type === 'weekday') return `בימי ${(s.days || []).map(d => DAYS_SHORT[d]).join(', ')}`;
-  if (s.type === 'biweek') return `ביום ${(s.days || []).map(d => DAYS_SHORT[d]).join(', ')}, פעם בשבועיים`;
-  if (s.type === 'monthday') return `ב־${s.day} לכל חודש`;
-  if (s.type === 'since') return `כשעברו ${DURS[s.n]?.label} מהפעם האחרונה`;
-  if (s.type === 'until') return s.n === '0d' ? 'ביום היעד ואילך' : `${DURS[s.n]?.label} לפני היעד ואילך`;
-  return SHOW_TYPES[s.type];
+  const s = normShow(h.show);
+  const em = s.emoji ? `ביום עם ${h.emoji} ביומן` : '';
+  const days = (s.days || []).map(d => DAYS_SHORT[d]).join(', ');
+  let t = '';
+  if (s.type === 'fixed') {
+    const ev = s.every || 'week';
+    t = ev === 'week' ? `בימי ${days}` : ev === '2weeks' ? `ביום ${days}, פעם בשבועיים` : `ב־${days} הראשון, ${EVERY[ev].label}`;
+  } else if (s.type === 'monthday') t = `ב־${s.day} לכל חודש`;
+  else if (s.type === 'since') t = `כשעברו ${DURS[s.n]?.label} מהפעם האחרונה`;
+  else if (s.type === 'until') t = s.n === '0d' ? 'ביום היעד ואילך' : `${DURS[s.n]?.label} לפני היעד ואילך`;
+  else if (s.type === 'daily') t = 'כל יום';
+  else return em || 'רק כשנבחר באשף';
+  return em ? `${t}, וגם ${em}` : t;
 }
 
 // ---------- actions ----------
@@ -272,15 +300,18 @@ export async function syncReminder(h) {
   if (!h || !state.cals.length) return;
   if (h.remindEv) dropReminderEvent(h);
   const s = h.show || { type: 'daily' };
-  if (!h.remind || s.type === 'emoji' || s.type === 'wizard') { persist(); return; }
+  if (!h.remind || s.type === 'none') { persist(); return; }
   const [hh, mm] = h.remind.split(':').map(Number);
   const now = new Date();
   let start = null, rrule = '';
-  if (['daily', 'weekday', 'biweek', 'monthday'].includes(s.type)) {
-    start = nextShowDay(h, startOfDay(now));
-    if (start) { start.setHours(hh, mm, 0, 0); if (start < now) { start = nextShowDay(h, addDays(startOfDay(now), 1)); start?.setHours(hh, mm, 0, 0); } }
+  if (['daily', 'fixed', 'monthday'].includes(s.type)) {
+    const rule = { ...h, show: { ...s, emoji: false } }; // the repeating reminder follows the fixed rule only
+    start = nextShowDay(rule, startOfDay(now));
+    if (start) { start.setHours(hh, mm, 0, 0); if (start < now) { start = nextShowDay(rule, addDays(startOfDay(now), 1)); start?.setHours(hh, mm, 0, 0); } }
+    const ev = s.every || 'week', m = EVERY[ev]?.m;
     rrule = s.type === 'daily' ? 'FREQ=DAILY' : s.type === 'monthday' ? `FREQ=MONTHLY;BYMONTHDAY=${s.day || 1}`
-      : `FREQ=WEEKLY;${s.type === 'biweek' ? 'INTERVAL=2;' : ''}BYDAY=${(s.days || []).map(d => RRULE_DAYS[d]).join(',')}`;
+      : m ? `FREQ=MONTHLY;${m > 1 ? `INTERVAL=${m};` : ''}BYDAY=${(s.days || []).map(d => '1' + RRULE_DAYS[d]).join(',')}`
+      : `FREQ=WEEKLY;${ev === '2weeks' ? 'INTERVAL=2;' : ''}BYDAY=${(s.days || []).map(d => RRULE_DAYS[d]).join(',')}`;
   } else {
     start = nextShowDay(h, startOfDay(now));
     if (start) { start.setHours(hh, mm, 0, 0); if (start < now) { start = addDays(startOfDay(now), 1); start.setHours(hh, mm, 0, 0); } }
@@ -302,9 +333,10 @@ const TABS = ['הרגלים', 'יומן', 'נבחרו באשף', 'מידע', 'א
 const COLS = ['id', 'שם', 'אימוג׳י', 'סוג', 'פעמים', 'תקופה', 'קבוצה', 'הופעה', 'פרמטר', 'תזכורת', 'אירוע תזכורת', 'סדר'];
 
 export function toRows() {
-  const showParam = s => (s.type === 'weekday' || s.type === 'biweek' ? (s.days || []).join(',') + (s.anchor ? `@${s.anchor}` : '') : s.type === 'monthday' ? String(s.day || 1) : s.n || '');
+  const showParam = s => (s.type === 'fixed' ? `${(s.days || []).join(',')}|${s.every || 'week'}${s.anchor ? `@${s.anchor}` : ''}` : s.type === 'monthday' ? String(s.day || 1) : s.n || '');
+  const showType = s => (s.type || 'daily') + (s.emoji ? '+emoji' : '');
   return {
-    [TABS[0]]: [COLS, ...sorted().map(h => [h.id, h.name, h.emoji, h.kind, h.times ?? '', h.period ?? '', h.group || '', h.show?.type || 'daily', showParam(h.show || {}), h.remind || '', h.remindEv || '', h.order ?? 0])],
+    [TABS[0]]: [COLS, ...sorted().map(h => [h.id, h.name, h.emoji, h.kind, h.times ?? '', h.period ?? '', h.group || '', showType(h.show || {}), showParam(h.show || {}), h.remind || '', h.remindEv || '', h.order ?? 0])],
     [TABS[1]]: [['תאריך', 'id', 'הרגל', 'כמות'], ...Object.entries(H.log).sort().map(([k, v]) => { const [d, id] = k.split('|'); return [d, id, habitById(id)?.name || '', v]; })],
     [TABS[2]]: [['תאריך', 'id'], ...Object.entries(H.pins).flatMap(([d, ids]) => ids.map(id => [d, id]))],
     [TABS[4]]: [['מפתח', 'שם', 'טלפון'], ...Object.entries(H.contacts).map(([k, c]) => [k, c.name || '', c.phone || ''])],
@@ -316,10 +348,14 @@ export function fromRows(t) {
   if (!hab.length) return null;
   const list = hab.map(r => {
     const [id, name, emoji, kind, times, period, group, type, param, remind, remindEv, order] = r.map(x => x ?? '');
-    const show = { type: type || 'daily' };
-    if (type === 'weekday' || type === 'biweek') { const [days, anchor] = String(param).split('@'); show.days = days ? days.split(',').map(Number) : []; if (anchor) show.anchor = anchor; }
-    else if (type === 'monthday') show.day = Number(param) || 1;
+    const [base, flag] = String(type || 'daily').split('+');
+    let show = { type: base };
+    if (base === 'fixed') { const [days, rest = 'week'] = String(param).split('|'); const [every, anchor] = rest.split('@'); show.days = days ? days.split(',').map(Number) : []; show.every = every || 'week'; if (anchor) show.anchor = anchor; }
+    else if (base === 'weekday' || base === 'biweek') { const [days, anchor] = String(param).split('@'); show.days = days ? days.split(',').map(Number) : []; if (anchor) show.anchor = anchor; }
+    else if (base === 'monthday') show.day = Number(param) || 1;
     else if (param) show.n = String(param);
+    if (flag === 'emoji') show.emoji = true;
+    show = normShow(show);
     return { id, name, emoji, kind: kind || 'toggle', times: times === '' ? null : Number(times), period: period || null, group, show, remind: String(remind || ''), remindEv: String(remindEv || ''), order: Number(order) || 0 };
   });
   const log = {};
@@ -384,7 +420,7 @@ export async function loadHabits() {
   loadEmojiEvents();
 }
 export async function loadEmojiEvents() {
-  if (!H.list.some(h => h.show?.type === 'emoji')) return;
+  if (!H.list.some(h => normShow(h.show).emoji)) return;
   try {
     const now = startOfDay(new Date());
     H.emojiEvents = await api().eventTitles(visibleCals(), addDays(now, -60), addMonths(now, 8));

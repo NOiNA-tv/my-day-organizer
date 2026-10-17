@@ -2,7 +2,7 @@
 import { icon } from './icons.js';
 import { state } from './data.js';
 import {
-  H, PERIODS, DURS, SHOW_TYPES, habitById, members, valueOn, status, statusText, freqText, showText, shownOn, habitsOn, rankedHabits,
+  H, PERIODS, DURS, SHOW_TYPES, EVERY, normShow, habitById, members, valueOn, status, statusText, freqText, showText, shownOn, habitsOn, rankedHabits,
   toggleHabit, bump, togglePin, isPinned, saveHabit, deleteHabit, nextEmojiEvent, reconnectForHabits, rankedRows, memberCount, lastDone, setValue, modeOf,
 } from './habits.js';
 import { suggestEmojis } from './emoji.js';
@@ -11,7 +11,7 @@ import { burst, queueFx } from './fx.js';
 import { openSheet, paintSheet, closeSheet, openMenu } from './overlay.js';
 import { openTimePicker } from './timepicker.js';
 import { openDatePicker } from './datepicker.js';
-import { esc, ymd, fromYmd, startOfDay, haptic, shortDate, daysBetween } from './util.js';
+import { esc, ymd, fromYmd, startOfDay, haptic, shortDate, daysBetween, MONTHS } from './util.js';
 
 const DOW = ['א׳', 'ב׳', 'ג׳', 'ד׳', 'ה׳', 'ו׳', 'ש׳'];
 
@@ -79,7 +79,7 @@ function control(h, d) {
   return `<button class="switch" role="switch" aria-checked="${!!v}" data-htoggle="${h.id}" data-hday="${ymd(d)}" aria-label="בוצע היום: ${esc(h.name)}"></button>`;
 }
 function extraLine(h, st) {
-  if (h.show?.type === 'emoji') {
+  if (h.show?.emoji) {
     const n = nextEmojiEvent(h);
     return n ? `${h.emoji} ביומן ${daysBetween(new Date(), n.start) === 0 ? 'היום' : `ב־${shortDate(n.start)}`}` : `אין אירוע עם ${h.emoji} ביומן`;
   }
@@ -92,7 +92,7 @@ export function habitRow(h, { wizard = false, member = false } = {}) {
   const st = status(h, today);
   const extra = extraLine(h, st);
   if (member) {
-    const n = memberCount(h, today), next = h.show?.type === 'emoji' ? nextEmojiEvent(h) : null;
+    const n = memberCount(h, today), next = h.show?.emoji ? nextEmojiEvent(h) : null;
     const line = [n ? `${n} ${PERIODS[h.period].label.replace('ב', 'ה')}` : '', next ? `${h.emoji} ביומן ${daysBetween(today, next.start) === 0 ? 'היום' : `ב־${shortDate(next.start)}`}` : ''].filter(Boolean).join(' · ');
     return `
     <div class="hrow member" data-hedit="${h.id}">
@@ -170,6 +170,7 @@ const blank = () => ({ id: '', name: '', emoji: '✅', kind: 'toggle', times: 1,
 export function openHabitEditor(id = null, { onDone } = {}) {
   const orig = id ? habitById(id) : null;
   const f = orig ? JSON.parse(JSON.stringify(orig)) : blank();
+  f.show = normShow(f.show);
   f.emojiManual = !!orig;
   const isNew = !orig;
   const today = startOfDay(new Date());
@@ -204,14 +205,18 @@ export function openHabitEditor(id = null, { onDone } = {}) {
         <p class="small-print" style="margin-top:6px">אם עשית את זה לפני שהתחלת לעקוב, אפשר לסמן כאן מתי.</p>` : ''}
 
       <div class="field-label">מתי הכפתור מופיע במסך הראשי</div>
-      <select class="inp" data-key="show-type">${Object.entries(SHOW_TYPES).map(([k, l]) => `<option value="${k}" ${s.type === k ? 'selected' : ''}>${l}</option>`).join('')}</select>
-      ${s.type === 'weekday' || s.type === 'biweek' ? dayPick : ''}
-      ${s.type === 'biweek' ? `<div class="seg" style="margin-top:8px"><button type="button" data-anchor="this" aria-pressed="${!s.anchor || isThisWeek(s.anchor)}">מהשבוע הזה</button><button type="button" data-anchor="next" aria-pressed="${!!s.anchor && !isThisWeek(s.anchor)}">מהשבוע הבא</button></div>` : ''}
+      <select class="inp" data-key="show-type">${Object.entries(SHOW_TYPES).filter(([k]) => k !== 'none' || s.emoji || s.type === 'none').concat(s.type === 'monthday' ? [['monthday', `ב־${s.day} לכל חודש`]] : []).map(([k, l]) => `<option value="${k}" ${s.type === k ? 'selected' : ''}>${l}</option>`).join('')}</select>
+      ${s.type === 'fixed' ? `${dayPick}
+        <select class="inp" data-key="show-every" style="margin-top:8px" aria-label="תדירות">${Object.entries(EVERY).map(([k, v]) => `<option value="${k}" ${(s.every || 'week') === k ? 'selected' : ''}>${v.label}</option>`).join('')}</select>
+        ${s.every === '2weeks' ? `<div class="seg" style="margin-top:8px"><button type="button" data-anchor="this" aria-pressed="${!s.anchor || isThisWeek(s.anchor)}">מהשבוע הזה</button><button type="button" data-anchor="next" aria-pressed="${!!s.anchor && !isThisWeek(s.anchor)}">מהשבוע הבא</button></div>` : ''}
+        ${EVERY[s.every]?.m ? `${EVERY[s.every].m > 1 ? `<div class="row-lab">החל מ־<select class="inp" data-key="show-anchor">${Array.from({ length: EVERY[s.every].m }, (_, i) => { const d = new Date(today.getFullYear(), today.getMonth() + i, 1); const v = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; return `<option value="${v}" ${s.anchor === v ? 'selected' : ''}>${MONTHS[d.getMonth()]}${d.getFullYear() !== today.getFullYear() ? ` ${d.getFullYear()}` : ''}</option>`; }).join('')}</select></div>` : ''}
+          <p class="small-print" style="margin-top:6px">ב${(s.days || []).map(d => `יום ${DOW[d]}`).join(' / ')} הראשון של החודש.</p>` : ''}` : ''}
       ${s.type === 'monthday' ? `<input class="inp" type="number" min="1" max="31" inputmode="numeric" data-key="show-day" value="${s.day || 1}" aria-label="יום בחודש" style="margin-top:8px">` : ''}
       ${s.type === 'since' ? `<div class="row-lab">כשעברו ${durSel(['1w', '2w', '1m', '2m', '3m', '6m', '1y'])} מהפעם האחרונה</div>` : ''}
       ${s.type === 'until' ? `<div class="row-lab">${durSel(['0d', '1d', '2d', '1w', '2w', '1m'])} לפני היעד, ונשאר עד שמסמנים</div>` : ''}
-      ${s.type === 'emoji' ? `<p class="small-print" style="margin-top:6px">כל אירוע ביומן שהכותרת שלו כוללת ${f.emoji} יציג את הכפתור ביום שבו הוא מתחיל.</p>` : ''}
-      ${s.type === 'wizard' ? '<p class="small-print" style="margin-top:6px">הכפתור יופיע רק בימים שתבחר לו באשף, במסך ההרגלים (📌).</p>' : ''}
+      ${s.type === 'none' ? '<p class="small-print" style="margin-top:6px">רק בימים עם האימוג׳י ביומן, או כשבוחרים אותו באשף (📌).</p>' : ''}
+      <div class="set-row" style="margin-top:10px"><div class="grow"><b>גם ביום שיש ביומן אירוע עם ${f.emoji}</b><small>כל אירוע שהכותרת שלו כוללת את האימוג׳י</small></div>
+        <button type="button" class="switch" role="switch" aria-checked="${!!s.emoji}" data-hed-emoji aria-label="גם ביום עם האימוג׳י ביומן"></button></div>
 
       <div class="field-label">קבוצה (לא חובה)</div>
       <input class="inp" data-key="group" value="${esc(f.group)}" list="hgroups" placeholder="למשל: פנאי וחברה" aria-label="קבוצה">
@@ -220,10 +225,10 @@ export function openHabitEditor(id = null, { onDone } = {}) {
 
       <div class="field-label">${icon('bell')}תזכורת</div>
       <div class="rem-row">
-        <button class="inp time-btn" data-hed-remind ${s.type === 'emoji' ? 'disabled' : ''}>${f.remind || 'בחירת שעה'}</button>
+        <button class="inp time-btn" data-hed-remind ${s.type === 'none' ? 'disabled' : ''}>${f.remind || 'בחירת שעה'}</button>
         ${f.remind ? `<button class="btn sm" data-hed-noremind>${icon('bellOff')}ללא</button>` : ''}
       </div>
-      <p class="small-print" style="margin-top:6px">${s.type === 'emoji' ? 'לאירוע עצמו כבר יש התראה ביומן.' : 'התראה בטלפון בימים שהכפתור מופיע, דרך היומן הראשי שלך.'}</p>
+      <p class="small-print" style="margin-top:6px">${s.type === 'none' ? 'לאירוע עצמו כבר יש התראה ביומן.' : 'התראה בטלפון בימים שהכפתור מופיע, דרך היומן הראשי שלך.'}</p>
 
       ${!isNew ? `<div class="set-row" style="margin-top:14px"><div class="grow"><b>להציג היום במסך הראשי</b><small>גם אם היום הוא לא היום שלו</small></div>
         <button class="switch" role="switch" aria-checked="${isPinned(f, today)}" data-hed-pin aria-label="להציג היום"></button></div>` : ''}
@@ -244,19 +249,27 @@ export function openHabitEditor(id = null, { onDone } = {}) {
     if (k === 'group') f.group = e.target.value.trim();
     if (k === 'show-day') f.show.day = Math.max(1, Math.min(31, Number(e.target.value) || 1));
   });
+  // months cycles start this month unless picked; 2-week cycles start this week
+  function setAnchor() {
+    const m = EVERY[f.show.every]?.m;
+    if (m > 1) f.show.anchor = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
+    else delete f.show.anchor;
+  }
   el.addEventListener('change', e => {
     const k = e.target.dataset.key;
     if (k === 'period') { f.period = e.target.value; paintSheet(); }
     if (k === 'show-type') {
       const t = e.target.value;
-      f.show = { type: t };
-      if (t === 'weekday' || t === 'biweek') f.show.days = [today.getDay()];
+      f.show = { type: t, ...(f.show.emoji || t === 'none' ? { emoji: true } : {}) };
+      if (t === 'fixed') { f.show.days = [today.getDay()]; f.show.every = EVERY[f.period] ? f.period : 'week'; setAnchor(); }
       if (t === 'monthday') f.show.day = today.getDate();
       if (t === 'since') f.show.n = { day: '1w', week: '1w', '2weeks': '2w', month: '1m', '2months': '2m', '3months': '3m', '6months': '6m', year: '1y' }[f.period] || '1w';
       if (t === 'until') f.show.n = '1w';
       paintSheet();
     }
     if (k === 'show-n') f.show.n = e.target.value;
+    if (k === 'show-every') { f.show.every = e.target.value; delete f.show.anchor; setAnchor(); paintSheet(); }
+    if (k === 'show-anchor') f.show.anchor = e.target.value;
   });
   el.addEventListener('click', e => {
     const b = e.target.closest('button'); if (!b) return;
@@ -268,6 +281,11 @@ export function openHabitEditor(id = null, { onDone } = {}) {
       const d = Number(b.dataset.dow), days = new Set(f.show.days || []);
       days.has(d) ? days.delete(d) : days.add(d);
       f.show.days = [...days].sort(); if (!f.show.days.length) f.show.days = [d];
+      paintSheet(); return;
+    }
+    if ('hedEmoji' in b.dataset) {
+      f.show.emoji = !f.show.emoji;
+      if (!f.show.emoji) { delete f.show.emoji; if (f.show.type === 'none') f.show = { type: 'daily' }; }
       paintSheet(); return;
     }
     if (b.dataset.anchor) { const w = addDaysLocal(today, -today.getDay()); f.show.anchor = ymd(b.dataset.anchor === 'this' ? w : addDaysLocal(w, 7)); paintSheet(); return; }
