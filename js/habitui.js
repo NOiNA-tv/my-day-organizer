@@ -26,25 +26,26 @@ function chipMeta(h, d) {
   const txt = u < 0 ? `באיחור ${-u === 1 ? 'יום' : `${-u} ימים`}` : u === 0 ? 'היעד היום' : `עוד ${u === 1 ? 'יום' : u === 2 ? 'יומיים' : `${u} ימים`} ליעד`;
   return `<span class="hc-meta ${LEVEL[st.level] || ''}">${txt}</span>`;
 }
+// a tile in the day's habit row: emoji, name, status and the control, top to bottom
 export function chip(h, d) {
   const v = valueOn(h, d), day = ymd(d);
   if (h.kind === 'count') {
     return `<div class="hchip count ${h.sign === 'neg' ? 'neg' : ''} ${v ? 'on' : ''}" role="group" aria-label="${esc(h.name)}: ${v}">
-      <button data-hbump="${h.id}" data-delta="-1" data-hday="${day}" aria-label="פחות" ${v ? '' : 'disabled'}>${icon('minus')}</button>
-      <span class="hc-lab"><span class="hc-emo">${h.emoji}</span>${esc(h.name)}<b>${v}${h.times && h.period === 'day' ? `/${h.times}` : ''}</b></span>
-      <button data-hbump="${h.id}" data-delta="1" data-hday="${day}" aria-label="עוד אחד">${icon('plus')}</button>
+      <span class="hc-emo">${h.emoji}</span><span class="hc-name">${esc(h.name)}</span>
+      <span class="hc-lab"><b>${v}${h.times && h.period === 'day' ? `<small>/${h.times}</small>` : ''}</b></span>
+      <span class="hc-ctl"><button data-hbump="${h.id}" data-delta="1" data-hday="${day}" aria-label="עוד אחד">${icon('plus')}</button><button data-hbump="${h.id}" data-delta="-1" data-hday="${day}" aria-label="פחות" ${v ? '' : 'disabled'}>${icon('minus')}</button></span>
     </div>`;
   }
   const goal = h.times > 1 && status(h, d).level === 'done';
-  return `<button class="hchip ${v ? 'on' : ''} ${goal ? 'goal' : ''}" role="switch" aria-checked="${!!v}" data-htoggle="${h.id}" data-hday="${day}">
-    <span class="hc-emo">${h.emoji}</span><span class="hc-name">${esc(h.name)}</span>${chipMeta(h, d)}<span class="hc-knob" aria-hidden="true">${icon('check')}</span></button>`;
+  return `<button class="hchip ${v ? 'on' : ''} ${goal ? 'goal' : ''}" role="switch" aria-checked="${!!v}" data-htoggle="${h.id}" data-hday="${day}" aria-label="${esc(h.name)}">
+    <span class="hc-emo">${h.emoji}</span><span class="hc-name">${esc(h.name)}</span>${chipMeta(h, d) || '<span class="hc-meta empty"></span>'}<span class="hc-knob" aria-hidden="true">${icon('check')}</span></button>`;
 }
 export function dayHabits(d) {
   const list = habitsOn(d);
   const more = H.list.length > list.length;
-  return `<div class="habit-row" aria-label="הרגלים">${list.map(h => chip(h, d)).join('')}
-    ${more ? `<button class="hround" data-hmore data-hday="${ymd(d)}" aria-label="הרגל נוסף להיום">${icon('dots')}</button>` : ''}
-    <button class="hround" data-hadd aria-label="הרגל חדש">${icon('plus')}</button></div>`;
+  return `<div class="zone-h hz">${icon('sprout')}הרגלים
+      <span class="hz-act">${more ? `<button class="hround" data-hmore data-hday="${ymd(d)}" aria-label="הרגל נוסף להיום">${icon('dots')}</button>` : ''}<button class="hround" data-hadd aria-label="הרגל חדש">${icon('plus')}</button></span></div>
+    <div class="habit-row ${list.length > 6 ? 'many' : ''}" aria-label="הרגלים"><div class="hr-tiles">${list.map(h => chip(h, d)).join('')}</div></div>`;
 }
 // the habits that aren't on this day: picking one adds its switch for that day
 function openMoreMenu(anchor, d) {

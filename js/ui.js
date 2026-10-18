@@ -634,6 +634,24 @@ function aheadSection() {
     </section>`;
 }
 
+// open tasks outside the week: later this month (with how far), and those with no date at all
+function laterSection() {
+  const { upcoming, noDate } = taskGroups();
+  const later = upcoming.filter(t => t.due > ymd(addDays(state.day, 7)));
+  if (!later.length && !noDate.length) return '';
+  const open = store.get('openNoDate') ?? true;
+  return `
+    <section class="sec" aria-labelledby="h-later">
+      <div class="sec-h"><h2 id="h-later">משימות בהמשך</h2><span class="count">${later.length + noDate.length}</span>
+        <button class="icon-btn" data-act="add-task" aria-label="משימה חדשה">${icon('plus')}</button></div>
+      <div class="group">
+        ${later.map(t => taskRow(t, { showDue: true })).join('')}
+        ${noDate.length ? `<button class="disclosure" data-act="toggle-nodate" aria-expanded="${open}">בלי תאריך (${noDate.length})${icon('chevD')}</button>
+          ${open ? [...noDate].sort((a, b) => String(b.updated || '').localeCompare(String(a.updated || ''))).map(t => taskRow(t)).join('') : ''}` : ''}
+      </div>
+    </section>`;
+}
+
 function weekTaskRow(t, d, time) {
   return `
     <div class="task combo wk ${time ? '' : 'untimed'}" data-task="${t.id}" data-fk="t${t.id}" data-slot="task" data-day="${ymd(d)}" ${time ? `data-time="${time.toISOString()}"` : ''}>
@@ -707,6 +725,7 @@ export function render() {
       ${view.habitsOpen && isToday() ? habitsDashboard() : `${banners()}
       ${daySection()}
       ${aheadSection()}
+      ${laterSection()}
       ${tiles()}`}
     </main>
     <div class="minibar ${minibarShown ? 'show' : ''}" aria-hidden="true">
@@ -795,7 +814,7 @@ export function bindMain() {
       case 'toggle-done': view.openDone = !view.openDone; render(); break;
       case 'ahead': view.aheadTab = id; render(); break;
       case 'add-menu': openAdd({ kind: 'task' }); break;
-      case 'toggle-nodate': view.openNoDate = !view.openNoDate; render(); break;
+      case 'toggle-nodate': store.set('openNoDate', !(store.get('openNoDate') ?? true)); render(); break;
       case 'login': handlers.login?.(); break;
       case 'wizard': handlers.wizard?.('morning', b); break;
       case 'wizard-evening': handlers.wizard?.('evening', document.querySelector('.fab')); break;

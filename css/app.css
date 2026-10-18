@@ -1091,3 +1091,47 @@ select.inp { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.
 .push-check li.ok span { color: var(--ok); }
 .push-check li.bad span, .push-check li.bad b { color: var(--danger); }
 .push-check li small { grid-column: 2; color: var(--ink-2); direction: ltr; text-align: end; word-break: break-all; }
+
+/* ---------- the day's habits: one balanced row of tall tiles (v44) ---------- */
+.habit-row { display: block; padding: 4px 10px 12px; }
+.zone-h.hz { padding-top: 12px; }
+.hz-act { margin-inline-start: auto; display: flex; gap: 6px; }
+.hz-act .hround { width: 30px; height: 30px; border-radius: 15px; }
+.hz-act .hround .ic { width: 15px; height: 15px; }
+.hr-tiles { display: flex; gap: 5px; }
+.habit-row.many .hr-tiles { overflow-x: auto; scroll-snap-type: x mandatory; scrollbar-width: none; overscroll-behavior-x: contain; padding-bottom: 2px; }
+.habit-row.many .hr-tiles::-webkit-scrollbar { display: none; }
+.hr-tiles > .hchip { flex: 1 1 0; min-width: 0; }
+/* more than six: a bit narrower than a sixth, so the next one peeks in and says "scroll" */
+.habit-row.many .hr-tiles > .hchip { flex: 0 0 calc((100% - 5 * 5px) / 6.4); scroll-snap-align: start; }
+.hr-side { flex: none; display: flex; flex-direction: column; justify-content: center; gap: 8px; }
+.hr-side .hround { width: 34px; height: 34px; border-radius: 17px; }
+.hr-side .hround .ic { width: 17px; height: 17px; }
+
+.habit-row .hchip { container-type: inline-size; height: auto; min-height: 132px; flex-direction: column; align-items: center; justify-content: space-between;
+  gap: 4px; padding: 10px 4px 8px; border-radius: 18px; text-align: center; font-size: 13px; line-height: 1.2; }
+.habit-row .hchip .hc-emo { font-size: 24px; }
+.habit-row .hchip .hc-name { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; word-break: keep-all; overflow-wrap: normal; font-weight: 700; min-height: 2.4em; max-width: 100%; }
+.habit-row .hchip .hc-meta { font-size: 11px; padding: 2px 6px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.habit-row .hchip .hc-meta.empty { visibility: hidden; }
+.habit-row .hchip .hc-knob { margin-top: 2px; }
+/* counters: the number big, then + and − (side by side when there's room, stacked when narrow) */
+.habit-row .hchip.count { padding-inline: 4px; }
+.habit-row .hchip.count .hc-lab { padding: 0; }
+.habit-row .hchip.count .hc-lab b { font-size: 20px; }
+.habit-row .hchip.count .hc-lab small { font-size: 12px; opacity: .7; }
+.hc-ctl { display: flex; gap: 6px; }
+.habit-row .hchip.count .hc-ctl button { width: 30px; height: 30px; border-radius: 15px; display: grid; place-items: center; background: var(--surface); border: 1.5px solid var(--line); }
+.habit-row .hchip.count .hc-ctl button .ic { width: 16px; height: 16px; }
+.habit-row .hchip.count .hc-ctl button:disabled { opacity: .4; }
+@container (max-width: 70px) {
+  .hc-name { font-size: 11.5px; letter-spacing: -.2px; }
+  .habit-row .hchip .hc-emo { font-size: 22px; }
+  .habit-row .hchip .hc-knob { width: 26px; height: 26px; }
+  .hc-ctl { flex-direction: column; gap: 4px; }
+  .habit-row .hchip.count .hc-ctl button { width: 28px; height: 26px; }
+}
+@container (min-width: 110px) {
+  .habit-row .hchip .hc-emo { font-size: 28px; }
+  .hc-name { font-size: 14px; }
+}
