@@ -214,7 +214,7 @@ function riskItems(now, today) {
         title: `🔥 ${name}: ${st.need === 1 ? `נשארה הזדמנות אחת ${per}` : `נשארו ${st.need} הזדמנויות ${per}`}`,
         body: st.need === 1 ? `היום היום האחרון כדי לעמוד ביעד (${st.count}/${st.times}).` : `צריך עוד ${st.need} ב־${st.left} הימים שנשארו.`,
         tag: `r:${h.group || h.id}`, url: `./?habits=1&h=${h.id}`,
-        actions: h.group ? [{ action: 'open', title: '📋 לפתוח' }, LATER_HOUR] : [{ action: 'done', title: '✓ בוצע' }, LATER_HOUR],
+        actions: h.group ? [{ action: 'open', title: '📋 לפתוח' }, LATER_HOUR] : [{ action: 'done', title: '✅ עשיתי' }, LATER_HOUR],
         data: h.group ? { later: 60 } : { habit: h.id, day: ymd(d), later: 60 },
         skip: { habits: ms.map(m => m.id), scope: 'any' },
       });
