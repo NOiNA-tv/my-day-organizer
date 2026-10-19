@@ -7,6 +7,7 @@ import {
 } from './habits.js';
 import { suggestEmojis } from './emoji.js';
 import { statsSection } from './habitstats.js';
+import { BUTTONS } from './notify.js';
 import { burst, queueFx } from './fx.js';
 import { openSheet, paintSheet, closeSheet, openMenu } from './overlay.js';
 import { openTimePicker } from './timepicker.js';
@@ -166,6 +167,34 @@ export function habitsDashboard() {
 }
 
 // ---------- editor ----------
+// ---------- the notification part of the habit editor ----------
+const WHEN = [[0, 'בבוקר של היום'], [-1, 'בבוקר יום לפני'], [-7, 'בבוקר שבוע לפני']];
+function notifyEditor(f, s) {
+  const n = f.notify || (f.notify = { when: [], b1: 'done', b2: 'later' });
+  const on = d => (n.when || []).includes(d);
+  const opt = (k, cur, list) => list.map(x => `<option value="${x}" ${cur === x ? 'selected' : ''}>${BUTTONS[x].label}</option>`).join('');
+  return `
+    <div class="nf-when">
+      <div class="rem-row"><span class="nf-lab">בשעה קבועה</span>
+        <button class="inp time-btn" data-hed-remind ${s.type === 'none' ? 'disabled' : ''}>${f.remind || 'בחירת שעה'}</button>
+        ${f.remind ? `<button class="btn sm" data-hed-noremind>${icon('bellOff')}ללא</button>` : ''}</div>
+      <div class="chips nf-chips">${WHEN.map(([d, l]) => `<button type="button" class="chip-btn" data-nf-when="${d}" aria-pressed="${on(d)}">${l}</button>`).join('')}
+        <button type="button" class="chip-btn" data-nf-place aria-pressed="${!!n.place}">📍 בהגעה למקום</button></div>
+      ${n.place || n.placeOpen ? `<input class="inp ltr-inp" data-key="nf-place" value="${esc(n.place || '')}" placeholder="שם המקום באנגלית, למשל gym" aria-label="שם המקום" style="margin-top:8px">
+        <p class="small-print" style="margin-top:4px">MacroDroid מזהה שהגעת ושולח את השם הזה. ההוראות: הגדרות ← התראות בטלפון.</p>` : ''}
+      <p class="small-print" style="margin-top:6px">${(n.when || []).length ? `״היום״ של ההרגל: ${s.type === 'none' || s.emoji ? 'יום האירוע ביומן עם האימוג׳י' : s.type === 'until' ? 'יום היעד' : s.type === 'since' ? 'היום שבו הוא מופיע' : 'היום שבו הוא מופיע'}. בבוקר = יחד עם אשף הבוקר.` : 'ההתראה לא תגיע אם כבר סימנת.'}</p>
+    </div>
+    <div class="nf-btns">
+      <label><span>כפתור ראשון</span><select class="inp" data-key="nf-b1">${opt('b1', n.b1 || 'done', ['done', 'shop', 'none'])}</select></label>
+      <label><span>כפתור שני</span><select class="inp" data-key="nf-b2">${opt('b2', n.b2 || 'none', ['none', 'later', 'music', 'recipes', 'maccabi', 'walk', 'event', 'link', 'macro'])}</select></label>
+    </div>
+    ${n.b2 === 'link' ? `<div class="nf-extra"><input class="inp" data-key="nf-urlTitle" value="${esc(n.urlTitle || '')}" placeholder="שם הכפתור, למשל 📒 מתכונים"><input class="inp ltr-inp" data-key="nf-url" value="${esc(n.url || '')}" placeholder="https://…"></div>` : ''}
+    ${n.b2 === 'macro' ? `<div class="nf-extra"><input class="inp" data-key="nf-macroTitle" value="${esc(n.macroTitle || '')}" placeholder="שם הכפתור, למשל 🎧 מוזיקה"><input class="inp ltr-inp" data-key="nf-macro" value="${esc(n.macro || '')}" placeholder="מזהה ה־Webhook ב־MacroDroid, למשל md-music"></div>` : ''}
+    <div class="field-label">רוצה משהו מיוחד?</div>
+    <textarea class="inp" data-key="nf-note" rows="2" placeholder="לתאר במילים מתי ההתראה ומה הכפתורים יעשו. Claude יקרא ויגדיר.">${esc(n.note || '')}</textarea>
+    ${n.note && !n.noteDone ? '<p class="small-print" style="margin-top:4px">⏳ ממתין ל־Claude. אפשר לכתוב לו ״יש הרגל חדש עם בקשת התראה״.</p>' : ''}`;
+}
+
 const blank = () => ({ id: '', name: '', emoji: '✅', kind: 'toggle', times: 1, period: 'week', group: '', show: { type: 'daily' }, remind: '', remindEv: '', emojiManual: false });
 
 export function openHabitEditor(id = null, { onDone } = {}) {
@@ -225,12 +254,8 @@ export function openHabitEditor(id = null, { onDone } = {}) {
       <datalist id="hgroups">${groups.map(g => `<option value="${esc(g)}">`).join('')}</datalist>
       <p class="small-print" style="margin-top:6px">הרגלים באותה קבוצה נספרים יחד מול יעד אחד.</p>
 
-      <div class="field-label">${icon('bell')}תזכורת</div>
-      <div class="rem-row">
-        <button class="inp time-btn" data-hed-remind ${s.type === 'none' ? 'disabled' : ''}>${f.remind || 'בחירת שעה'}</button>
-        ${f.remind ? `<button class="btn sm" data-hed-noremind>${icon('bellOff')}ללא</button>` : ''}
-      </div>
-      <p class="small-print" style="margin-top:6px">${s.type === 'none' ? 'לאירוע עצמו כבר יש התראה ביומן.' : 'התראה בטלפון בימים שהכפתור מופיע, עם כפתור ״בוצע״ ו״עוד שעה״. לא תגיע אם כבר סימנת.'}</p>
+      <div class="field-label">${icon('bell')}התראות</div>
+      ${notifyEditor(f, s)}
 
       ${!isNew ? `<div class="set-row" style="margin-top:14px"><div class="grow"><b>להציג היום במסך הראשי</b><small>גם אם היום הוא לא היום שלו</small></div>
         <button class="switch" role="switch" aria-checked="${isPinned(f, today)}" data-hed-pin aria-label="להציג היום"></button></div>` : ''}
@@ -249,6 +274,7 @@ export function openHabitEditor(id = null, { onDone } = {}) {
       el.querySelector('[data-hed-save]').disabled = !f.name.trim();
     }
     if (k === 'group') f.group = e.target.value.trim();
+    if (k?.startsWith('nf-')) { const key = k.slice(3); f.notify[key] = e.target.value.trim(); if (key === 'note') f.notify.noteDone = false; }
     if (k === 'show-day') f.show.day = Math.max(1, Math.min(31, Number(e.target.value) || 1));
   });
   // months cycles start this month unless picked; 2-week cycles start this week
@@ -260,6 +286,7 @@ export function openHabitEditor(id = null, { onDone } = {}) {
   el.addEventListener('change', e => {
     const k = e.target.dataset.key;
     if (k === 'period') { f.period = e.target.value; paintSheet(); }
+    if (k === 'nf-b1' || k === 'nf-b2') { f.notify[k.slice(3)] = e.target.value; paintSheet(); }
     if (k === 'show-type') {
       const t = e.target.value;
       f.show = { type: t, ...(f.show.emoji || t === 'none' ? { emoji: true } : {}) };
@@ -291,6 +318,11 @@ export function openHabitEditor(id = null, { onDone } = {}) {
       if (!f.show.emoji) { delete f.show.emoji; if (f.show.type === 'none') f.show = { type: 'daily' }; }
       paintSheet(); return;
     }
+    if (b.dataset.nfWhen != null) {
+      const d = Number(b.dataset.nfWhen), w = new Set(f.notify.when || []);
+      w.has(d) ? w.delete(d) : w.add(d); f.notify.when = [...w].sort((a, b2) => a - b2); paintSheet(); return;
+    }
+    if ('nfPlace' in b.dataset) { if (f.notify.place || f.notify.placeOpen) { f.notify.place = ''; f.notify.placeOpen = false; } else f.notify.placeOpen = true; paintSheet(); return; }
     if (b.dataset.anchor) { const w = addDaysLocal(today, -today.getDay()); f.show.anchor = ymd(b.dataset.anchor === 'this' ? w : addDaysLocal(w, 7)); paintSheet(); return; }
     if ('hedRemind' in b.dataset) { openTimePicker({ value: f.remind, title: `תזכורת ל${f.name || 'הרגל'}`, onSave: v => { f.remind = v; paintSheet(); }, onClear: f.remind ? () => { f.remind = ''; paintSheet(); } : null }); return; }
     if ('hedNoremind' in b.dataset) { f.remind = ''; paintSheet(); return; }
@@ -305,6 +337,7 @@ export function openHabitEditor(id = null, { onDone } = {}) {
       if (!f.name.trim()) return;
       const { emojiManual, ...h } = f;
       h.name = h.name.trim();
+      if (h.notify) { const { placeOpen, ...nf } = h.notify; if (!nf.place) delete nf.place; h.notify = nf; }
       saveHabit(h);
       closeSheet(); onDone?.();
     }

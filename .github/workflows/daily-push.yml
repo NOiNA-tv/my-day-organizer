@@ -10,13 +10,18 @@ on:
   workflow_dispatch:
     inputs:
       kind:
-        description: 'auto (whatever is due) / morning / evening (send now)'
+        description: 'auto (whatever is due) / morning / evening (send now) / trigger (arrived somewhere, see arg)'
         default: auto
+      arg:
+        description: 'for kind=trigger: the place name set on the habit, e.g. gym'
+        default: ''
 
 permissions:
   contents: write
 
-concurrency: daily-push
+concurrency:
+  # an arrival (kind=trigger) must not be cancelled by the 5-minute timer queuing behind it
+  group: daily-push-${{ github.event.inputs.kind == 'trigger' && 'trigger' || 'timer' }}
 
 jobs:
   push:
@@ -36,6 +41,7 @@ jobs:
         env:
           VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
           KIND: ${{ github.event.inputs.kind }}
+          ARG: ${{ github.event.inputs.arg }}
           STATE_FILE: /tmp/state.json
           PLAN_FILE: /tmp/plan.json
           INBOX_FILE: /tmp/inbox.json

@@ -243,10 +243,10 @@ export const google = {
     const lists = await Promise.all(cals.map(async cal => {
       try {
         const r = await g(`${CAL}/calendars/${encodeURIComponent(cal.id)}/events?${qs({
-          timeMin: from.toISOString(), timeMax: to.toISOString(), singleEvents: 'true', maxResults: 2500, fields: 'items(id,summary,start,status,extendedProperties)',
+          timeMin: from.toISOString(), timeMax: to.toISOString(), singleEvents: 'true', maxResults: 2500, fields: 'items(id,summary,start,status,location,extendedProperties)',
         })}`);
         return (r.items || []).filter(e => e.status !== 'cancelled' && !e.extendedProperties?.private).map(e => ({
-          id: e.id, title: e.summary || '', start: e.start.date ? fromYmd(e.start.date) : new Date(e.start.dateTime),
+          id: e.id, calId: cal.id, title: e.summary || '', location: e.location || '', start: e.start.date ? fromYmd(e.start.date) : new Date(e.start.dateTime),
         }));
       } catch (err) { if (err instanceof AuthError) throw err; return []; }
     }));

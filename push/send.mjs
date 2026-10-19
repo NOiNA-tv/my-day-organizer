@@ -79,8 +79,22 @@ for (const s of inbox.filter(x => x.t === 'snooze')) {
     if (base) cands.push({ ...base, id: `${base.id}~${s.until}`, at: s.until, madeAt: s.at, past: false });
   }
 }
-const due = cands.filter(it => it.at <= +now && it.at > +now - LATE && !state.sent[it.id] && !skipped(it));
-const markSent = ids => () => { ids.forEach(id => { state.sent[id] = +now; }); };
+let due = cands.filter(it => it.at <= +now && it.at > +now - LATE && !state.sent[it.id] && !skipped(it));
+// the same reminder twice in one run (a "later" copy and the app's rebuilt plan): send it once, mark both
+const seenTag = new Map();
+for (const it of due) { const k = `${it.tag}|${Math.round(it.at / 60000)}`; if (seenTag.has(k)) { seenTag.get(k).also = [...(seenTag.get(k).also || []), it.id]; it.dup = true; } else seenTag.set(k, it); }
+due = due.filter(it => !it.dup);
+
+// "you arrived" (MacroDroid → workflow_dispatch kind=trigger arg=gym): the ready-made notification for that place
+if (process.env.KIND === 'trigger' && process.env.ARG) {
+  const tpl = plan.triggers?.[process.env.ARG];
+  const id = `p:${process.env.ARG}:${today}`;
+  const doneNow = tpl && ((tpl.doneToday && plan.made && ymd(new Date(plan.made)) === today) || acks.some(a => (a.habits || []).includes(tpl.habit) && a.day === today));
+  if (!tpl) console.log(`No notification set up for "${process.env.ARG}".`);
+  else if (state.sent[id] || doneNow) console.log(`"${process.env.ARG}": already sent or done today.`);
+  else due.push({ ...tpl, id, at: +now, data: { ...tpl.data, day: today } });
+}
+const markSent = ids => () => { ids.forEach(id => { state.sent[id] = +now; }); due.forEach(it => { if (ids.includes(it.id)) (it.also || []).forEach(x => { state.sent[x] = +now; }); }); };
 const payload = it => ({ id: it.id, title: it.title, body: it.body, tag: it.tag, url: it.url, actions: it.actions, data: it.data });
 const grouped = due.filter(x => x.group), single = due.filter(x => !x.group);
 if (grouped.length > 1) {
@@ -127,7 +141,9 @@ async function weatherAlert() {
   const serious = (o?.tips || []).filter(([e, , lvl]) => lvl === 'alert' || (lvl === 'warn' && e !== '🧴')); // UV is too common to ring for
   state.weather = today; changed = true;
   if (!serious.length) return;
-  out.push([{ title: '⚠️ מזג האוויר היום', body: serious.map(([e, txt]) => `${e} ${txt}`).join('\n'), tag: 'weather', url: './' }, () => {}]);
+  // a tap opens the phone's weather app (through MacroDroid), or Google's forecast
+  const w = plan.links?.weather || 'https://www.google.com/search?q=weather';
+  out.push([{ title: '⚠️ מזג האוויר היום', body: serious.map(([e, txt]) => `${e} ${txt}`).join('\n'), tag: 'weather', url: w.includes('macrodroid') ? './?weather=1' : w, data: w.includes('macrodroid') ? { tapMd: w } : {} }, () => {}]);
 }
 
 // ---------- 4. a new Design Digest issue ----------
@@ -139,7 +155,7 @@ async function digestNote() {
   if (top.id === state.digest || now.getHours() < 8 || now.getHours() >= 22) return;
   out.push([{
     title: '¶ התלקיט של השבוע יצא', body: `גיליון ${top.he}: הדברים הכי טובים מהניוזלטרים על עיצוב ואנימציה.`, tag: 'digest',
-    url: `https://noina-tv.github.io/design-digest/?issue=${top.id}`, actions: [{ action: 'open', title: '📖 לקריאה' }],
+    url: `./?digest=${top.id}`, actions: [{ action: 'open', title: '📖 לקריאה' }],
   }, () => { state.digest = top.id; }]);
 }
 

@@ -1135,3 +1135,21 @@ select.inp { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.
   .habit-row .hchip .hc-emo { font-size: 28px; }
   .hc-name { font-size: 14px; }
 }
+
+/* "אחר כך": the times to choose from */
+.later-opts { display: grid; gap: 8px; margin: 10px 0 6px; }
+.later-opts .btn { justify-content: space-between; height: 52px; padding-inline: 16px; }
+.later-opts .btn small { color: var(--ink-2); font-weight: 600; }
+/* the habit a notification was about */
+.hrow.flash, .hgroup .hrow.flash { animation: hflash 1s ease-in-out 3; border-radius: 16px; }
+@keyframes hflash { 0%, 100% { box-shadow: 0 0 0 0 transparent; background-color: inherit; } 50% { box-shadow: 0 0 0 3px var(--brand); background-color: var(--brand-soft); } }
+
+/* habit editor: notifications */
+.nf-when .rem-row { align-items: center; }
+.nf-lab { font-size: 14px; font-weight: 600; color: var(--ink-2); margin-inline-end: auto; }
+.nf-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.chip-btn { height: 34px; padding: 0 12px; border-radius: 17px; border: 1.5px solid var(--line); background: var(--surface-2); font-size: 13.5px; font-weight: 600; color: var(--ink-2); }
+.chip-btn[aria-pressed="true"] { background: var(--brand-soft); border-color: var(--brand); color: var(--ink); }
+.nf-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; }
+.nf-btns label { display: grid; gap: 4px; font-size: 12.5px; font-weight: 700; color: var(--ink-3); }
+.nf-extra { display: grid; gap: 6px; margin-top: 8px; }

@@ -5,7 +5,7 @@ import { icon } from './icons.js';
 import { paintSheet } from './overlay.js';
 import { openTimePicker } from './timepicker.js';
 import { emit } from './data.js';
-import { leaveLead, planInfo, lastServerRun, schedulePlan, pipelineOn, pipelineMissing, recoverSub, writePlan } from './notify.js';
+import { leaveLead, mdId, planInfo, lastServerRun, schedulePlan, pipelineOn, pipelineMissing, recoverSub, writePlan } from './notify.js';
 
 const supported = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
 
@@ -176,14 +176,18 @@ export function pushPanel() {
       ${connected ? `<button class="btn sm" data-push="sample">${icon('bell')}דוגמה</button>` : perm !== 'denied' ? `<button class="btn sm primary" data-push="on" ${linked ? '' : 'disabled'}>${icon('bellRing')}${perm === 'default' ? 'לאפשר' : 'חיבור'}</button>` : ''}
     </div>
     <div class="set-row">
-      <div class="grow"><b>🚗 התראת יציאה</b><small>לאירועים עם כתובת, עם כפתורי Waze ומפות</small></div>
-      <select class="inp sm-sel" data-leave aria-label="כמה זמן לפני">${[[0, 'כבוי'], [20, '20 דק׳ לפני'], [30, 'חצי שעה לפני'], [45, '45 דק׳ לפני'], [60, 'שעה לפני'], [90, 'שעה וחצי לפני']].map(([v, l]) => `<option value="${v}" ${leaveLead() === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
+      <div class="grow"><b>📅 לפני אירוע</b><small>לחיצה פותחת את האירוע. עם כתובת: כפתורי תחב״צ (Egg) ווייז</small></div>
+      <select class="inp sm-sel" data-leave aria-label="כמה זמן לפני">${[[0, 'כבוי'], [30, 'חצי שעה לפני'], [45, '45 דק׳ לפני'], [60, 'שעה לפני'], [90, 'שעה וחצי לפני'], [120, 'שעתיים לפני']].map(([v, l]) => `<option value="${v}" ${leaveLead() === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
     </div>
     <div class="set-row">
       <div class="grow"><b>בדיקת התראות</b><small>בודקת כל שלב, מחדשת את הכתובת של הטלפון ושולחת תזכורת לדוגמה</small></div>
       <button class="btn sm ${checkState.running ? 'busy' : ''}" data-push="check" ${checkState.running ? 'disabled' : ''}>${checkState.running ? 'בודק…' : 'בדיקה'}</button>
     </div>
     ${checkState.rows.length ? `<ul class="push-check">${checkState.rows.map(r => `<li class="${r.ok ? 'ok' : 'bad'}"><span>${r.ok ? '✓' : '✗'}</span><b>${esc(r.label)}</b>${r.detail ? `<small>${esc(r.detail)}</small>` : ''}</li>`).join('')}</ul>` : ''}
+    <div class="set-row md-row">
+      <div class="grow"><b>📱 MacroDroid</b><small>${mdId() ? `מחובר ✓ (…${esc(mdId().slice(-6))}). כפתורים שפותחים אפליקציות בטלפון יעבדו.` : 'כדי שכפתורים יפתחו אפליקציות (Egg, מכבי, מזג אוויר, מוזיקה): להדביק כאן קישור Webhook מ־MacroDroid.'}</small>
+        <div class="rem-row" style="margin-top:6px"><input class="inp ltr-inp" data-md-url placeholder="https://trigger.macrodroid.com/…" value="" autocomplete="off"><button class="btn sm" data-push="md">שמירה</button></div></div>
+    </div>
     ${serverNote()}
     ${linked ? `<p class="small-print"><button class="link-btn" data-push="unlink">ניתוק גיטהאב מהטלפון</button></p>` : ''}`;
 }
@@ -244,6 +248,12 @@ document.addEventListener('click', async e => {
       const ok = await enableNotifications();
       pushInfo.msg = ok ? 'הטלפון מחובר להתראות ✓' : Notification.permission === 'denied' ? 'ההתראות חסומות. אפשר להפעיל בהגדרות הטלפון ← אפליקציות ← מה איתי היום ← התראות.' : 'לא אושר.';
       emit();
+    } else if (act === 'md') {
+      const v = document.querySelector('[data-md-url]')?.value.trim() || '';
+      const m = v.match(/trigger\.macrodroid\.com\/([^/?#\s]+)/);
+      if (!m) { pushInfo.msg = v ? 'זה לא נראה כמו קישור Webhook של MacroDroid.' : 'נמחק.'; if (!v) store.del('mdId'); }
+      else { store.set('mdId', m[1]); pushInfo.msg = 'MacroDroid מחובר ✓'; }
+      schedulePlan(0);
     } else if (act === 'check') { await fullCheck(); return;
     } else if (act === 'sample') {
       // all the way through: saved in the plan, sent by the job in a few minutes, with buttons

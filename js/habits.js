@@ -173,6 +173,10 @@ export const isPinned = (h, d) => (H.pins[ymd(d)] || []).includes(h.id);
 
 export function shownOn(h, d) {
   if (valueOn(h, d) > 0 || isPinned(h, d)) return true;
+  return ruleOn(h, d);
+}
+// the habit's own rule, without marks or wizard pins
+export function ruleOn(h, d) {
   const s = normShow(h.show), dow = d.getDay();
   if (s.emoji && emojiEventOn(h, d)) return true;
   switch (s.type) {
@@ -196,6 +200,51 @@ export function shownOn(h, d) {
   }
 }
 export const habitsOn = d => sorted().filter(h => shownOn(h, d));
+
+// the days a habit is "for" (what its notifications count back from): the scheduled day, the due day,
+// or the day of a calendar event with its emoji. Overdue ones count as today.
+export function targetDays(h, from, to) {
+  const s = normShow(h.show), out = new Map();
+  const add = (d, ev = null) => { const k = ymd(d); if (d >= startOfDay(from) && d < to && !out.has(k)) out.set(k, { day: startOfDay(d), ev }); };
+  if (s.emoji || s.type === 'none') {
+    const all = [...state.events.filter(e => !e.taskRef && !e.habitRef && !e.snoozeFor), ...H.emojiEvents];
+    for (const e of all) if (textHasEmoji(e.title, h.emoji)) add(e.start, e);
+  }
+  if (s.type === 'until' && h.period) {
+    const l = lastDone(h, addDays(from, -1)), due = l ? addPeriod(l, h.period) : from;
+    add(due < from ? from : due);
+  } else if (s.type === 'since') {
+    const l = lastDone(h, addDays(from, -1)), due = l ? addDur(l, s.n || '1w') : from;
+    add(due < from ? from : due);
+  } else if (['daily', 'fixed', 'monthday'].includes(s.type)) {
+    const plain = { ...h, show: { ...s, emoji: false } };
+    for (let d = startOfDay(from); d < to; d = addDays(d, 1)) if (ruleOn(plain, d)) add(d);
+  }
+  return [...out.values()].sort((a, b) => a.day - b.day);
+}
+
+// ---------- notification rules for a habit (h.notify) ----------
+// when: days relative to the target day (0 = that morning, -1 = the morning before, -7 = a week before)
+// place: a name MacroDroid sends when you arrive there (e.g. "gym"); b1/b2: the two buttons (see BUTTONS in notify.js)
+export const NOTIFY_DEFAULTS = [
+  [/חדר כושר|כושר|gym/i, { when: [], place: 'gym', b1: 'done', b2: 'music' }],
+  [/גילוח/, { when: [0], b1: 'done', b2: 'none' }],
+  [/בישול/, { when: [-1, 0], b1: 'shop', b2: 'recipes' }],
+  [/בדיקות|מרשם/, { when: [-7, 0], b1: 'done', b2: 'maccabi' }],
+  [/שיננית|רופא שיניים/, { when: [0], b1: 'done', b2: 'walk' }],
+];
+function migrateNotify() {
+  if (store.get('notifyV1')) return;
+  store.set('notifyV1', 1);
+  let changed = false;
+  for (const h of H.list) {
+    if (h.notify) continue;
+    const hit = NOTIFY_DEFAULTS.find(([re]) => re.test(h.name));
+    if (hit) { h.notify = { ...hit[1] }; changed = true; }
+    else if (h.group === 'פנאי וחברה') { h.notify = { when: [0], b1: 'done', b2: 'event' }; changed = true; }
+  }
+  if (changed) persist();
+}
 
 // the big list (wizard / dashboard): today's first, then due soon, then most overdue, then most frequent
 export function rankedRows(ref = new Date()) {
@@ -308,13 +357,13 @@ export async function syncReminder(h) {
 // ---------- Google Sheet ----------
 const SHEET_NAME = 'מה איתי היום – הרגלים';
 const TABS = ['הרגלים', 'יומן', 'נבחרו באשף', 'מידע', 'אנשי קשר'];
-const COLS = ['id', 'שם', 'אימוג׳י', 'סוג', 'פעמים', 'תקופה', 'קבוצה', 'הופעה', 'פרמטר', 'תזכורת', 'אירוע תזכורת', 'סדר'];
+const COLS = ['id', 'שם', 'אימוג׳י', 'סוג', 'פעמים', 'תקופה', 'קבוצה', 'הופעה', 'פרמטר', 'תזכורת', 'אירוע תזכורת', 'סדר', 'התראה'];
 
 export function toRows() {
   const showParam = s => (s.type === 'fixed' ? `${(s.days || []).join(',')}|${s.every || 'week'}${s.anchor ? `@${s.anchor}` : ''}` : s.type === 'monthday' ? String(s.day || 1) : s.n || '');
   const showType = s => (s.type || 'daily') + (s.emoji ? '+emoji' : '');
   return {
-    [TABS[0]]: [COLS, ...sorted().map(h => [h.id, h.name, h.emoji, h.kind + (h.kind === 'count' && h.sign === 'neg' ? ':neg' : ''), h.times ?? '', h.period ?? '', h.group || '', showType(h.show || {}), showParam(h.show || {}), h.remind || '', h.remindEv || '', h.order ?? 0])],
+    [TABS[0]]: [COLS, ...sorted().map(h => [h.id, h.name, h.emoji, h.kind + (h.kind === 'count' && h.sign === 'neg' ? ':neg' : ''), h.times ?? '', h.period ?? '', h.group || '', showType(h.show || {}), showParam(h.show || {}), h.remind || '', h.remindEv || '', h.order ?? 0, h.notify ? JSON.stringify(h.notify) : ''])],
     [TABS[1]]: [['תאריך', 'id', 'הרגל', 'כמות'], ...Object.entries(H.log).sort().map(([k, v]) => { const [d, id] = k.split('|'); return [d, id, habitById(id)?.name || '', v]; })],
     [TABS[2]]: [['תאריך', 'id'], ...Object.entries(H.pins).flatMap(([d, ids]) => ids.map(id => [d, id]))],
     [TABS[4]]: [['מפתח', 'שם', 'טלפון'], ...Object.entries(H.contacts).map(([k, c]) => [k, c.name || '', c.phone || ''])],
@@ -325,7 +374,7 @@ export function fromRows(t) {
   const hab = (t[TABS[0]] || []).slice(1).filter(r => r[0]);
   if (!hab.length) return null;
   const list = hab.map(r => {
-    const [id, name, emoji, kind, times, period, group, type, param, remind, remindEv, order] = r.map(x => x ?? '');
+    const [id, name, emoji, kind, times, period, group, type, param, remind, remindEv, order, notify] = r.map(x => x ?? '');
     const [base, flag] = String(type || 'daily').split('+');
     let show = { type: base };
     if (base === 'fixed') { const [days, rest = 'week'] = String(param).split('|'); const [every, anchor] = rest.split('@'); show.days = days ? days.split(',').map(Number) : []; show.every = every || 'week'; if (anchor) show.anchor = anchor; }
@@ -335,7 +384,7 @@ export function fromRows(t) {
     if (flag === 'emoji') show.emoji = true;
     show = normShow(show);
     const [k0, sg] = String(kind || 'toggle').split(':');
-    return { id, name, emoji, kind: k0, ...(sg === 'neg' ? { sign: 'neg' } : {}), times: times === '' ? null : Number(times), period: period || null, group, show, remind: String(remind || ''), remindEv: String(remindEv || ''), order: Number(order) || 0 };
+    return { id, name, emoji, kind: k0, ...(sg === 'neg' ? { sign: 'neg' } : {}), times: times === '' ? null : Number(times), period: period || null, group, show, remind: String(remind || ''), remindEv: String(remindEv || ''), order: Number(order) || 0, ...(notify ? { notify: (() => { try { return JSON.parse(notify); } catch { return undefined; } })() } : {}) };
   });
   const log = {};
   for (const [d, id, , v] of (t[TABS[1]] || []).slice(1)) if (d && id && Number(v)) log[`${d}|${id}`] = Number(v);
@@ -377,7 +426,7 @@ function classify(e) {
 
 // Load: local copy first (instant), then the sheet (truth across devices). Newer side wins.
 export async function loadHabits() {
-  if (state.mode !== 'live') { H.sync = 'local'; emit(); loadEmojiEvents(); return; }
+  if (state.mode !== 'live') { H.sync = 'local'; migrateNotify(); emit(); loadEmojiEvents(); return; }
   try {
     H.sync = 'syncing'; emit();
     const a = api();
@@ -398,6 +447,7 @@ export async function loadHabits() {
     }
   } catch (e) { classify(e); }
   migrateSigns();
+  migrateNotify();
   emit();
   loadEmojiEvents();
 }

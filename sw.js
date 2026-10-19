@@ -1,9 +1,9 @@
 // Service worker: offline app shell + push notifications.
-const VERSION = 'v44';
+const VERSION = 'v45';
 const SHELL = [
   './', 'index.html', 'manifest.webmanifest', 'css/app.css',
   'js/app.js', 'js/auth.js', 'js/config.js', 'js/data.js', 'js/demo.js', 'js/extras.js', 'js/google.js', 'js/icons.js',
-  'js/overlay.js', 'js/push.js', 'js/sheets.js', 'js/ui.js', 'js/util.js', 'js/voice.js', 'js/wizard.js', 'js/timepicker.js', 'js/wear.js', 'js/datepicker.js', 'js/habits.js', 'js/habitui.js', 'js/emoji.js', 'js/habitstats.js', 'js/fx.js', 'js/bday.js', 'js/kv.js', 'js/notify.js',
+  'js/overlay.js', 'js/push.js', 'js/sheets.js', 'js/ui.js', 'js/util.js', 'js/voice.js', 'js/wizard.js', 'js/timepicker.js', 'js/wear.js', 'js/datepicker.js', 'js/habits.js', 'js/habitui.js', 'js/emoji.js', 'js/habitstats.js', 'js/fx.js', 'js/bday.js', 'js/kv.js', 'js/notify.js', 'js/route.js',
   'icons/icon-192.png', 'icons/icon.svg',
 ];
 
@@ -84,14 +84,48 @@ async function confirmDone(d, title, msg) {
 }
 async function focusOrOpen(target) {
   if (!target.startsWith(self.registration.scope)) return self.clients.openWindow(target); // e.g. the Digest site
+  // the app is already open: tell it where to go (no reload, so the wizard/drawer opens right away)
   const wins = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
   const w = wins.find(c => c.url.startsWith(self.registration.scope));
-  if (w) { await w.navigate(target); return w.focus(); }
+  if (w) {
+    w.postMessage({ type: 'route', url: target });
+    try { return await w.focus(); } catch { /* focus can be refused; open a window instead */ }
+  }
   return self.clients.openWindow(target);
 }
 
+// "אחר כך" on a task: a second notification with the two likeliest times; a tap on it opens all the options
+function laterChoices(now = new Date()) {
+  const h = now.getHours(), at = (dd, hh) => { const x = new Date(now); x.setDate(x.getDate() + dd); x.setHours(hh, 0, 0, 0); return +x; };
+  const ctx = h < 12 ? ['☀️ בצהריים', at(0, 13)] : h < 17 ? ['🌆 בערב', at(0, 19)] : h < 21 ? ['🌙 בלילה', at(0, 22)] : ['🌅 מחר בבוקר', at(1, 9)];
+  return [['⏰ עוד שעה', +now + 3600e3], ctx];
+}
+async function fire(url) { try { await fetch(url, { mode: 'no-cors' }); return true; } catch { return false; } }
+
 async function act(a, d, title) {
   const scope = self.registration.scope;
+  const [kind, slot] = a.split(':');
+  if (slot && d[slot]) {
+    if (kind === 'md') { const ok = await fire(d[slot]); return ok ? undefined : confirmDone(d, title, 'MacroDroid לא ענה. כדאי לבדוק שהוא פועל.'); }
+    if (kind === 'url') return self.clients.openWindow(d[slot]);
+    if (kind === 'app') return focusOrOpen(new URL(d[slot], scope).href);
+  }
+  if (a === 'tlater') {
+    const ch = laterChoices();
+    return self.registration.showNotification(`⏰ מתי להזכיר? ${d.title || ''}`.trim(), {
+      body: 'עוד אפשרויות (מחר, מחרתיים, שבוע הבא): לגעת כאן', tag: d.tag || 'later', renotify: false, silent: true,
+      icon: 'icons/icon-192.png', badge: 'icons/badge.png', dir: 'rtl', lang: 'he',
+      actions: ch.map(([label], i) => ({ action: 'snz' + i, title: label })),
+      data: { ...d, choices: ch, url: `./?snooze=${encodeURIComponent(d.task)}&at=${d.at || Date.now()}` },
+    });
+  }
+  if (a === 'snz0' || a === 'snz1') {
+    const [label, until] = d.choices[Number(a.slice(3))];
+    await enqueue({ t: 'taskMove', id: d.task, until });
+    await inbox({ t: 'snooze', ids: [d.id], until }).catch(() => {});
+    return confirmDone(d, (d.title || 'משימה'), `אזכיר ${label.replace(/^\S+\s/, '')}, בסביבות ${hhmm(until)}`);
+  }
+  if (!a && d.tapMd) { const ok = await fire(d.tapMd); if (ok) return; }
   if (a === 'done' || a === 'plus') {
     await enqueue({ t: 'habit', id: d.habit, day: d.day, op: a });
     await inbox({ t: 'ack', habits: [d.habit], day: d.day }).catch(() => {});

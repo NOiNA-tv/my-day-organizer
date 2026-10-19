@@ -9,20 +9,27 @@ import { weather, latestDigest, markDigestSeen } from './extras.js';
 import { loadPushInfo } from './push.js';
 import { loadHabits } from './habits.js';
 import { startNotify, schedulePlan, drainQueue, migrateCalendarReminders } from './notify.js';
-import { openTask } from './sheets.js';
+import { openTask, openEvent } from './sheets.js';
 import { editBirthday, birthdayById } from './bday.js';
+import { routeExtras } from './route.js';
+import { store } from './util.js';
 
 const back = auth.handleRedirect();
 const params = new URLSearchParams(location.search);
-const wantWizard = params.get('wizard') || back?.returnTo || '';
-// deep links from notification buttons: ?tel= (dial), ?bday=, ?task=, ?habits=1
-const link = { tel: params.get('tel'), bday: params.get('bday'), task: params.get('task'), habits: params.has('habits') };
-if (link.tel) location.href = 'tel:' + link.tel.replace(/[^\d+]/g, '');
-if ([...params.keys()].some(k => ['wizard', 'tel', 'bday', 'task', 'habits'].includes(k))) history.replaceState(null, '', location.pathname);
+// deep links (from notifications): wizard, digest, event, task, snooze, habits(&h), shop, bday, tel, weather.
+// Kept across the quick sign-in hop to Google, which would otherwise drop them.
+const ROUTE_KEYS = ['wizard', 'digest', 'event', 'task', 'snooze', 'habits', 'shop', 'bday', 'tel', 'weather'];
+let pending = [...params.keys()].some(k => ROUTE_KEYS.includes(k)) ? location.search : (sessionStorage.getItem('route') || '');
+if (back?.returnTo && !pending) pending = `?wizard=${back.returnTo}`;
+sessionStorage.removeItem('route');
+if (location.search) history.replaceState(null, '', location.pathname);
+const tel = new URLSearchParams(pending).get('tel');
+if (tel) { location.href = 'tel:' + tel.replace(/[^\d+]/g, ''); pending = ''; }
 
 // Token expired but we've connected before → quick silent hop to Google (no UI when already consented).
 if (auth.shouldSilentRefresh()) {
-  auth.login({ silent: true, returnTo: wantWizard });
+  if (pending) sessionStorage.setItem('route', pending);
+  auth.login({ silent: true });
 } else {
   boot();
 }
@@ -51,9 +58,9 @@ async function boot() {
 
   await Promise.all([init(), loadWeather(false), latestDigest().then(d => { view.digest = d; }), loadPushInfo()]);
   render();
-  if (link.habits) { view.habitsOpen = true; render(); }
-  if (link.task && state.tasks.some(t => t.id === link.task)) openTask(link.task);
-  if (link.bday) { const ev = birthdayById(link.bday); if (ev) editBirthday(ev); }
+  if (pending) setTimeout(() => route(pending), 200);
+  // the service worker asks an already-open app to go somewhere (no reload)
+  navigator.serviceWorker?.addEventListener('message', e => { if (e.data?.type === 'route') route(new URL(e.data.url).search); });
   loadHabits().then(async () => {
     await drainQueue();
     await migrateCalendarReminders();
@@ -64,8 +71,19 @@ async function boot() {
   if (back?.error && back.error !== 'state_mismatch' && auth.everConnected) {
     console.warn('google auth', back.error);
   }
-  if (wantWizard && ['morning', 'evening', 'mail'].includes(wantWizard)) {
-    setTimeout(() => openWizard(wantWizard, document.querySelector('.fab'), extras()), 250);
+  async function route(search) {
+    const q = new URLSearchParams(search);
+    const wz = q.get('wizard');
+    if (wz && ['morning', 'evening', 'mail'].includes(wz)) { if (!wizardOpen()) openWizard(wz, document.querySelector('.fab'), extras()); return; }
+    if (q.get('tel')) { location.href = 'tel:' + q.get('tel').replace(/[^\d+]/g, ''); return; }
+    if (q.has('habits')) { view.habitsOpen = true; render(); routeExtras.highlightHabit(q.get('h')); return; }
+    if (q.get('event')) { if (!state.events.some(e => e.id === q.get('event'))) await refresh(); openEvent(q.get('event')); return; }
+    if (q.get('task')) { if (!state.tasks.some(t => t.id === q.get('task'))) await refresh(); openTask(q.get('task')); return; }
+    if (q.get('snooze')) { routeExtras.snoozeSheet(q.get('snooze'), Number(q.get('at')) || Date.now()); return; }
+    if (q.has('shop')) { routeExtras.shoppingList(); return; }
+    if (q.get('bday')) { const ev = birthdayById(q.get('bday')); if (ev) editBirthday(ev); return; }
+    if (q.get('digest')) { routeExtras.openDigest(q.get('digest')); return; }
+    if (q.has('weather')) { routeExtras.weather(); return; }
   }
 
   // keep "in 25 min", the now-line and the ring fresh; resync when coming back to the app

@@ -5,9 +5,11 @@
 // marks made there wait in IndexedDB and are applied here the next time the app opens.
 import { VAPID_PUBLIC_KEY } from './config.js';
 import { state, api, visibleCals, subscribe, toggleTask, toast } from './data.js';
-import { H, sorted, shownOn, valueOn, status, modeOf, normShow, members, statusText, PERIODS, setValue, bump, habitById } from './habits.js';
+import { H, sorted, shownOn, valueOn, status, modeOf, normShow, members, statusText, PERIODS, setValue, bump, habitById, targetDays } from './habits.js';
 import { birthdayContact } from './bday.js';
 import { store, startOfDay, addDays, ymd, fromYmd, hm } from './util.js';
+import { setTaskReminder, deferTask } from './data.js';
+import { pushInfo } from './push.js';
 import { ghGet, ghPut, hasGh, ghToken } from './push.js';
 import { kv } from './kv.js';
 
@@ -15,7 +17,41 @@ const BRANCH = 'push-data';
 const DAYS = 10; // how far ahead the plan looks (the app refreshes it whenever it's opened)
 const KEEP_PAST = 6 * 3600e3; // already-rung items stay in the plan this long, so "remind me later" can find them
 const RISK_AT = '18:00', BDAY_AT = '10:00';
-export const leaveLead = () => store.get('leaveLead') ?? 45; // minutes before an event with an address; 0 = off
+export const leaveLead = () => store.get('leaveLead') ?? 60; // minutes before a timed event; 0 = off
+const morningAt = () => pushInfo.schedule?.morning || '09:00'; // habit notifications come with the morning wizard
+
+// ---------- MacroDroid: the phone-side helper for things a web app can't do (open apps, Bluetooth, places) ----------
+// Each action is a MacroDroid macro with a Webhook trigger; the notification button calls its URL.
+export const mdId = () => store.get('mdId') || '';
+export const mdUrl = (ident, q = '') => (mdId() ? `https://trigger.macrodroid.com/${mdId()}/${ident}${q ? `?q=${encodeURIComponent(q)}` : ''}` : '');
+
+// the buttons a habit notification can have. Each builds { action, title } and adds what it needs to data.
+const mapsTo = (loc, mode) => `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(loc)}&travelmode=${mode}`;
+export const BUTTONS = {
+  none: { label: 'בלי כפתור' },
+  done: { label: '✅ עשיתי', make: h => ({ action: h.kind === 'count' ? 'plus' : 'done', title: h.kind === 'count' ? '➕ עוד אחד' : '✅ עשיתי' }) },
+  later: { label: '⏰ עוד שעה', make: () => ({ action: 'later', title: '⏰ עוד שעה' }) },
+  shop: { label: '🛒 רשימת קניות', make: () => ({ action: 'app', title: '🛒 רשימת קניות', app: './?shop=1' }) },
+  recipes: { label: '📒 מתכונים', make: () => ({ action: 'url', title: '📒 מתכונים', url: 'https://keep.google.com/#label/' + encodeURIComponent('מתכונים') }) },
+  music: { label: '🎧 מוזיקה', make: () => ({ action: 'md', title: '🎧 מוזיקה', md: mdUrl('md-music') }) },
+  maccabi: { label: '🏥 מכבי', make: () => ({ action: 'md', title: '🏥 מכבי', md: mdUrl('md-maccabi') }) },
+  walk: { label: '🧭 ניווט רגלי', make: (h, ev) => (ev?.location ? { action: 'url', title: '🧭 ניווט', url: mapsTo(ev.location, 'walking') } : null) },
+  event: { label: '📍 פתיחת האירוע', make: (h, ev) => (ev?.id ? { action: 'app', title: '📍 לאירוע', app: `./?event=${encodeURIComponent(ev.id)}` } : null) },
+  link: { label: '🔗 קישור…', make: (h, ev, n) => (n.url ? { action: 'url', title: n.urlTitle || '🔗 קישור', url: n.url } : null) },
+  macro: { label: '📱 MacroDroid…', make: (h, ev, n) => (n.macro && mdId() ? { action: 'md', title: n.macroTitle || '📱 פעולה', md: mdUrl(n.macro) } : null) },
+};
+function habitButtons(h, ev) {
+  const n = h.notify || { b1: 'done', b2: 'later' };
+  const out = [], data = {};
+  for (const k of [n.b1 || 'done', n.b2 || 'none']) {
+    const b = BUTTONS[k]?.make?.(h, ev, n);
+    if (!b) continue;
+    const key = `b${out.length}`;
+    out.push({ action: b.action === 'done' || b.action === 'plus' || b.action === 'later' ? b.action : `${b.action}:${key}`, title: b.title });
+    if (b.app) data[key] = b.app; if (b.url) data[key] = b.url; if (b.md) data[key] = b.md;
+  }
+  return { actions: out, data };
+}
 // what's still missing for notifications to flow ('' = nothing)
 export function pipelineMissing() {
   if (state.mode !== 'live') return 'צריך להתחבר לגוגל';
@@ -43,21 +79,60 @@ function habitItems(now, today) {
   const out = [];
   for (const h of sorted()) {
     const s = normShow(h.show);
-    if (!h.remind || s.type === 'none') continue;
     const anyScope = s.type === 'since' || s.type === 'until'; // once done, the next days' reminders are moot too
-    for (let i = 0; i < DAYS; i++) {
-      const d = addDays(today, i), t = at(d, h.remind);
-      if (t < now - KEEP_PAST) continue;
-      if (h.kind !== 'count' && valueOn(h, d) > 0) continue;
-      if (!shownOn(h, d)) continue;
-      out.push({
-        id: `h:${h.id}:${ymd(d)}`, at: +t, kind: 'habit', group: true,
-        title: `${h.emoji} ${h.name}`, body: statusText(h, d), tag: `h:${h.id}`, url: './?habits=1',
-        actions: [h.kind === 'count' ? { action: 'plus', title: '➕ עוד אחד' } : { action: 'done', title: '✓ בוצע' }, LATER_HOUR],
-        data: { habit: h.id, day: ymd(d), later: 60 },
-        skip: { habits: [h.id], scope: anyScope ? 'any' : 'day', day: ymd(d) },
-      });
+    const tap = `./?habits=1&h=${h.id}`;
+    // 1. a fixed time on the days it shows ("בשעה קבועה")
+    if (h.remind && s.type !== 'none') {
+      for (let i = 0; i < DAYS; i++) {
+        const d = addDays(today, i), t = at(d, h.remind);
+        if (t < now - KEEP_PAST) continue;
+        if (h.kind !== 'count' && valueOn(h, d) > 0) continue;
+        if (!shownOn(h, d)) continue;
+        const { actions, data } = habitButtons(h, null);
+        out.push({
+          id: `h:${h.id}:${ymd(d)}`, at: +t, kind: 'habit',
+          title: `${h.emoji} ${h.name}`, body: statusText(h, d), tag: `h:${h.id}`, url: tap,
+          actions, data: { ...data, habit: h.id, day: ymd(d), later: 60 },
+          skip: { habits: [h.id], scope: anyScope ? 'any' : 'day', day: ymd(d) },
+        });
+      }
     }
+    // 2. mornings relative to the habit's day (that morning, the one before, a week before)
+    const when = h.notify?.when || [];
+    if (when.length) {
+      const span = Math.max(0, ...when.map(x => -x));
+      for (const { day, ev } of targetDays(h, today, addDays(today, DAYS + span))) {
+        if (h.kind !== 'count' && valueOn(h, day) > 0) continue;
+        for (const off of when) {
+          const d = addDays(day, off), t = at(d, morningAt());
+          if (t < now - KEEP_PAST || d >= addDays(today, DAYS)) continue;
+          const { actions, data } = habitButtons(h, ev);
+          const lead = off === 0 ? (ev ? `היום: ${ev.title}` : 'היום') : off === -1 ? 'מחר' : `בעוד ${-off} ימים, ב־${day.getDate()}/${day.getMonth() + 1}`;
+          out.push({
+            id: `n:${h.id}:${ymd(day)}:${off}`, at: +t, kind: 'habit',
+            title: `${h.emoji} ${h.name}`, body: `${lead} · ${statusText(h, d)}`, tag: `h:${h.id}`, url: tap,
+            actions, data: { ...data, habit: h.id, day: ymd(day), later: 60 },
+            skip: { habits: [h.id], scope: 'any' },
+          });
+        }
+      }
+    }
+  }
+  return out;
+}
+
+// arriving somewhere (MacroDroid tells the job "gym"): one ready-made notification per place, sent on demand
+function placeTriggers(now, today) {
+  const out = {};
+  for (const h of sorted()) {
+    const place = h.notify?.place;
+    if (!place) continue;
+    const { actions, data } = habitButtons(h, null);
+    out[place] = {
+      id: `p:${place}:${ymd(today)}`, kind: 'habit', title: `${h.emoji} הגעת ל${h.name}`, body: statusText(h, today), tag: `h:${h.id}`,
+      url: `./?habits=1&h=${h.id}`, actions, data: { ...data, habit: h.id, day: ymd(today), later: 60 },
+      doneToday: valueOn(h, today) > 0, habit: h.id,
+    };
   }
   return out;
 }
@@ -70,8 +145,8 @@ function taskItems(now, events, keep) {
     out.push({
       id, at: +when, kind: 'task', group: true,
       title: `⏰ ${t.title}`, body: t.listTitle ? `משימה · ${t.listTitle}` : 'משימה', tag: `t:${t.id}`, url: `./?task=${t.id}`,
-      actions: [{ action: 'tdone', title: '✓ בוצע' }, { action: 'later', title: '⏰ מחר' }],
-      data: { task: t.id, list: t.listId, later: 1440 },
+      actions: [{ action: 'tdone', title: '✅ עשיתי' }, { action: 'tlater', title: '⏰ אחר כך' }],
+      data: { task: t.id, list: t.listId, title: t.title, at: +when },
     });
   };
   for (const ev of events) if (ev.taskRef) add(state.tasks.find(t => t.id === ev.taskRef), ev.start, 't');
@@ -96,17 +171,26 @@ async function birthdayItems(now, today, events) {
   return out;
 }
 
-function leaveItems(now, events) {
+function eventItems(now, events) {
   const lead = leaveLead();
   if (!lead) return [];
-  return events.filter(e => !e.allDay && !e.taskRef && !e.habitRef && !e.snoozeFor && e.location && !ONLINE.test(e.location) && e.start > now)
+  return events.filter(e => !e.allDay && !e.taskRef && !e.habitRef && !e.snoozeFor && !e.birthday && e.start > now)
     .map(e => {
-      const t = new Date(e.start - lead * 60000), q = encodeURIComponent(e.location);
+      const t = new Date(e.start - lead * 60000), loc = (e.location || '').trim();
+      const physical = loc && !ONLINE.test(loc), join = e.meet || (ONLINE.test(loc) && /^https?:/.test(loc) ? loc : '');
+      const actions = [], data = {};
+      if (physical) {
+        const egg = mdUrl('md-egg', loc);
+        actions.push(egg ? { action: 'md:b0', title: '🚌 תחב״צ' } : { action: 'url:b0', title: '🚌 תחב״צ' });
+        data.b0 = egg || mapsTo(loc, 'transit');
+        actions.push({ action: 'url:b1', title: '🚗 וייז' });
+        data.b1 = `https://waze.com/ul?q=${encodeURIComponent(loc)}&navigate=yes`;
+      } else if (join) { actions.push({ action: 'url:b0', title: '🎥 להצטרף' }); data.b0 = join; }
+      const mins = lead >= 60 ? (lead === 60 ? 'בעוד שעה' : `בעוד ${lead / 60} שעות`) : `בעוד ${lead} דק׳`;
       return {
-        id: `l:${e.id}:${+e.start}`, at: +t, kind: 'leave',
-        title: `🚗 ${e.title} ב־${hm(e.start)}`, body: `${e.location} · עוד ${lead} דק׳, כדאי להתארגן ליציאה`, tag: `l:${e.id}`, url: './',
-        actions: [{ action: 'waze', title: '🧭 Waze' }, { action: 'maps', title: '🗺️ מפות' }],
-        data: { waze: `https://waze.com/ul?q=${q}&navigate=yes`, maps: `https://www.google.com/maps/dir/?api=1&destination=${q}` },
+        id: `l:${e.id}:${+e.start}`, at: +t, kind: 'event',
+        title: `📅 ${e.title} · ${hm(e.start)}`, body: `${mins}${loc ? ` · ${loc}` : ''}`, tag: `l:${e.id}`,
+        url: `./?event=${encodeURIComponent(e.id)}`, actions, data,
       };
     }).filter(x => x.at > now - KEEP_PAST);
 }
@@ -129,7 +213,7 @@ function riskItems(now, today) {
         id: `r:${h.group || h.id}:${ymd(d)}`, at: +t, kind: 'risk',
         title: `🔥 ${name}: ${st.need === 1 ? `נשארה הזדמנות אחת ${per}` : `נשארו ${st.need} הזדמנויות ${per}`}`,
         body: st.need === 1 ? `היום היום האחרון כדי לעמוד ביעד (${st.count}/${st.times}).` : `צריך עוד ${st.need} ב־${st.left} הימים שנשארו.`,
-        tag: `r:${h.group || h.id}`, url: './?habits=1',
+        tag: `r:${h.group || h.id}`, url: `./?habits=1&h=${h.id}`,
         actions: h.group ? [{ action: 'open', title: '📋 לפתוח' }, LATER_HOUR] : [{ action: 'done', title: '✓ בוצע' }, LATER_HOUR],
         data: h.group ? { later: 60 } : { habit: h.id, day: ymd(d), later: 60 },
         skip: { habits: ms.map(m => m.id), scope: 'any' },
@@ -162,11 +246,12 @@ export async function buildPlan(now = new Date(), keep = new Set()) {
   const events = await upcomingEvents(today).catch(() => state.events);
   const items = [
     ...habitItems(now, today), ...taskItems(now, events, keep), ...await birthdayItems(now, today, events),
-    ...leaveItems(now, events), ...riskItems(now, today),
+    ...eventItems(now, events), ...riskItems(now, today),
     ...testItem(now),
   ].map(x => (x.at <= +now ? { ...x, past: true } : x)).sort((a, b) => a.at - b.at);
   const g = store.get('geo');
-  return { v: 1, made: Date.now(), geo: g ? { lat: g.lat, lon: g.lon } : null, items };
+  return { v: 1, made: Date.now(), geo: g ? { lat: g.lat, lon: g.lon } : null, items, triggers: placeTriggers(now, today),
+    links: { weather: mdUrl('md-weather') || 'https://www.google.com/search?q=' + encodeURIComponent('מזג אוויר') } };
 }
 
 // ---------- sealing: only the GitHub job (it holds the VAPID private key) can read the plan ----------
@@ -189,7 +274,7 @@ export const planInfo = { at: store.get('planAt') || 0, count: store.get('planCo
 let timer = 0, writing = null;
 export function schedulePlan(ms = 15000) { clearTimeout(timer); timer = setTimeout(() => writePlan().catch(() => {}), ms); }
 
-const sigOf = items => JSON.stringify(items.filter(x => !x.past).map(x => [x.id, x.at, x.title, x.body, x.actions.map(a => a.action), x.data]));
+const sigOf = (items, extra = {}) => JSON.stringify([items.filter(x => !x.past).map(x => [x.id, x.at, x.title, x.body, x.actions.map(a => a.action), x.data]), extra]);
 export async function writePlan({ force = false } = {}) {
   await recoverSub();
   if (!pipelineOn()) return;
@@ -200,7 +285,7 @@ export async function writePlan({ force = false } = {}) {
       const box = await ghGet('inbox.json', BRANCH).catch(() => null);
       const keep = new Set((Array.isArray(box) ? box : []).filter(x => x.t === 'snooze' && x.until > Date.now()).flatMap(x => x.ids.map(i => String(i).split('~')[0])));
       const plan = await buildPlan(new Date(), keep);
-      const sig = sigOf(plan.items);
+      const sig = sigOf(plan.items, { t: plan.triggers, l: plan.links });
       if (!force && sig === store.get('planSig') && Date.now() - (store.get('planAt') || 0) < 6 * 3600e3) return;
       const blob = await seal(plan);
       for (let k = 0; ; k++) {
@@ -242,6 +327,12 @@ export async function drainQueue() {
       const d = fromYmd(x.day);
       if (x.op === 'plus') bump(x.id, d, 1); else if (!valueOn(h, d)) setValue(x.id, d, 1);
       names.push(`${h.emoji} ${h.name}`);
+    } else if (x.t === 'taskMove') {
+      const t = state.tasks.find(y => y.id === x.id), d = new Date(x.until);
+      if (!t || t.status === 'completed') continue;
+      setTaskReminder(x.id, d);
+      if (t.due && t.due !== ymd(d)) deferTask(x.id, ymd(d), '', { silent: true });
+      names.push(`${t.title} ← ${hm(d)}`);
     } else if (x.t === 'task') {
       const t = state.tasks.find(y => y.id === x.id);
       if (t && t.status !== 'completed') toggleTask(x.id, { silent: true });
