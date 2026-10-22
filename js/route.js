@@ -4,6 +4,7 @@ import { openSheet, closeSheet } from './overlay.js';
 import { openTask } from './sheets.js';
 import { weatherLink } from './extras.js';
 import { esc, hm, ymd, dayName, haptic } from './util.js';
+import { snoozeItems } from './notify.js';
 
 const at = (base, dd, h, m = 0) => { const x = new Date(base); x.setDate(x.getDate() + dd); x.setHours(h, m, 0, 0); return x; };
 
@@ -40,6 +41,22 @@ function snoozeSheet(taskId, origAt) {
   });
 }
 
+// "אחר כך" for a habit (or any non-task) notification: pick a time, the job sends it again then
+function laterSheet(ids, origAt, title) {
+  const opts = laterOptions(new Date(origAt));
+  openSheet(() => `
+    <h3>⏰ מתי להזכיר?</h3>
+    ${title ? `<p class="sub">${esc(title)}</p>` : ''}
+    <div class="later-opts">${opts.map(([label, d], i) => `<button class="btn grow" data-later="${i}"><b>${label}</b><small>${d.toDateString() === new Date().toDateString() ? '' : `יום ${dayName(d)}, `}${hm(d)}</small></button>`).join('')}</div>`);
+  document.querySelector('.sheet').addEventListener('click', async e => {
+    const b = e.target.closest('[data-later]'); if (!b) return;
+    const [label, d] = opts[Number(b.dataset.later)];
+    haptic(8); closeSheet();
+    const ok = await snoozeItems(ids, +d);
+    toast(ok ? `אזכיר ${label.replace(/^\S+\s/, '')}, ב־${hm(d)}` : 'לא הצלחתי לשמור. כדאי לבדוק את החיבור לגיטהאב בהגדרות.');
+  });
+}
+
 // cooking day: open (or start) "רשימת קניות" with the cursor in a new sub-item
 async function shoppingList() {
   const title = 'רשימת קניות';
@@ -69,4 +86,4 @@ function openDigest() {
 
 function weather() { location.href = weatherLink(); }
 
-export const routeExtras = { snoozeSheet, shoppingList, highlightHabit, openDigest, weather };
+export const routeExtras = { laterSheet, snoozeSheet, shoppingList, highlightHabit, openDigest, weather };

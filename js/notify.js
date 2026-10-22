@@ -23,21 +23,24 @@ const morningAt = () => pushInfo.schedule?.morning || '09:00'; // habit notifica
 // ---------- MacroDroid: the phone-side helper for things a web app can't do (open apps, Bluetooth, places) ----------
 // Each action is a MacroDroid macro with a Webhook trigger; the notification button calls its URL.
 export const mdId = () => store.get('mdId') || '';
-export const mdUrl = (ident, q = '') => (mdId() ? `https://trigger.macrodroid.com/${mdId()}/${ident}${q ? `?q=${encodeURIComponent(q)}` : ''}` : '');
+export const mdUrl = (ident, q = '', key = 'q') => (mdId() ? `https://trigger.macrodroid.com/${mdId()}/${ident}${q ? `?${key}=${encodeURIComponent(q)}` : ''}` : '');
+// links to other apps (Waze, Maps, Keep): Chrome opens them as web pages when a notification asks, so they go
+// through MacroDroid's "md-open", which hands the link to Android and the right app opens. Without MacroDroid: the web page.
+const ext = (title, url, appUrl = '') => (mdId() ? { action: 'md', title, md: mdUrl('md-open', appUrl || url, 'u') } : { action: 'url', title, url });
 
 // the buttons a habit notification can have. Each builds { action, title } and adds what it needs to data.
 const mapsTo = (loc, mode) => `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(loc)}&travelmode=${mode}`;
 export const BUTTONS = {
   none: { label: 'בלי כפתור' },
   done: { label: '✅ עשיתי', make: h => ({ action: h.kind === 'count' ? 'plus' : 'done', title: h.kind === 'count' ? '➕ עוד אחד' : '✅ עשיתי' }) },
-  later: { label: '⏰ עוד שעה', make: () => ({ action: 'later', title: '⏰ עוד שעה' }) },
+  later: { label: '⏰ אחר כך', make: () => ({ action: 'later', title: '⏰ אחר כך' }) },
   shop: { label: '🛒 רשימת קניות', make: () => ({ action: 'app', title: '🛒 רשימת קניות', app: './?shop=1' }) },
-  recipes: { label: '📒 מתכונים', make: () => ({ action: 'url', title: '📒 מתכונים', url: 'https://keep.google.com/#label/' + encodeURIComponent('מתכונים') }) },
+  recipes: { label: '📒 מתכונים', make: () => ext('📒 מתכונים', 'https://keep.google.com/#label/' + encodeURIComponent('מתכונים')) },
   music: { label: '🎧 מוזיקה', make: () => ({ action: 'md', title: '🎧 מוזיקה', md: mdUrl('md-music') }) },
   maccabi: { label: '🏥 מכבי', make: () => ({ action: 'md', title: '🏥 מכבי', md: mdUrl('md-maccabi') }) },
-  walk: { label: '🧭 ניווט רגלי', make: (h, ev) => (ev?.location ? { action: 'url', title: '🧭 ניווט', url: mapsTo(ev.location, 'walking') } : null) },
+  walk: { label: '🧭 ניווט רגלי', make: (h, ev) => (ev?.location ? ext('🧭 ניווט', mapsTo(ev.location, 'walking'), `google.navigation:q=${encodeURIComponent(ev.location)}&mode=w`) : null) },
   event: { label: '📍 פתיחת האירוע', make: (h, ev) => (ev?.id ? { action: 'app', title: '📍 לאירוע', app: `./?event=${encodeURIComponent(ev.id)}` } : null) },
-  link: { label: '🔗 קישור…', make: (h, ev, n) => (n.url ? { action: 'url', title: n.urlTitle || '🔗 קישור', url: n.url } : null) },
+  link: { label: '🔗 קישור…', make: (h, ev, n) => (n.url ? ext(n.urlTitle || '🔗 קישור', n.url) : null) },
   macro: { label: '📱 MacroDroid…', make: (h, ev, n) => (n.macro && mdId() ? { action: 'md', title: n.macroTitle || '📱 פעולה', md: mdUrl(n.macro) } : null) },
 };
 function habitButtons(h, ev) {
@@ -71,7 +74,7 @@ export async function recoverSub() {
 }
 
 const at = (d, t) => { const [h, m] = t.split(':').map(Number); const x = new Date(d); x.setHours(h, m, 0, 0); return x; };
-const LATER_HOUR = { action: 'later', title: '⏰ עוד שעה' };
+const LATER_HOUR = { action: 'later', title: '⏰ אחר כך' };
 const ONLINE = /^(https?:|www\.)|zoom\.|meet\.google|teams\.microsoft|webex|whereby/i;
 
 // ---------- what should ring ----------
@@ -181,10 +184,12 @@ function eventItems(now, events) {
       const actions = [], data = {};
       if (physical) {
         const egg = mdUrl('md-egg', loc);
-        actions.push(egg ? { action: 'md:b0', title: '🚌 תחב״צ' } : { action: 'url:b0', title: '🚌 תחב״צ' });
-        data.b0 = egg || mapsTo(loc, 'transit');
-        actions.push({ action: 'url:b1', title: '🚗 וייז' });
-        data.b1 = `https://waze.com/ul?q=${encodeURIComponent(loc)}&navigate=yes`;
+        const bus = egg ? { action: 'md', md: egg } : ext('🚌 תחב״צ', mapsTo(loc, 'transit'));
+        actions.push({ action: `${bus.action}:b0`, title: '🚌 תחב״צ' });
+        data.b0 = bus.md || bus.url;
+        const wz = ext('🚗 וייז', `https://waze.com/ul?q=${encodeURIComponent(loc)}&navigate=yes`, `waze://?q=${encodeURIComponent(loc)}&navigate=yes`);
+        actions.push({ action: `${wz.action}:b1`, title: wz.title });
+        data.b1 = wz.md || wz.url;
       } else if (join) { actions.push({ action: 'url:b0', title: '🎥 להצטרף' }); data.b0 = join; }
       const mins = lead >= 60 ? (lead === 60 ? 'בעוד שעה' : `בעוד ${lead / 60} שעות`) : `בעוד ${lead} דק׳`;
       return {
@@ -229,7 +234,7 @@ function testItem(now) {
   const t = store.get('testPush');
   if (!t || t < now - KEEP_PAST) return [];
   return [{ id: `x:${t}`, at: t, kind: 'test', title: '🔔 תזכורת לדוגמה', body: 'ככה תיראה תזכורת. הכפתורים פה עובדים, אבל לא מסמנים כלום.', tag: 'test', url: './',
-    actions: [{ action: 'later', title: '⏰ עוד שעה' }, { action: 'open', title: '📋 לפתוח' }], data: { later: 60 } }];
+    actions: [{ action: 'later', title: '⏰ אחר כך' }, { action: 'open', title: '📋 לפתוח' }], data: {} }];
 }
 
 let evCache = { at: 0, list: [] };
@@ -248,7 +253,7 @@ export async function buildPlan(now = new Date(), keep = new Set()) {
     ...habitItems(now, today), ...taskItems(now, events, keep), ...await birthdayItems(now, today, events),
     ...eventItems(now, events), ...riskItems(now, today),
     ...testItem(now),
-  ].map(x => (x.at <= +now ? { ...x, past: true } : x)).sort((a, b) => a.at - b.at);
+  ].map(x => ({ ...x, data: { ...(x.data || {}), at: x.at, title: x.title } })).map(x => (x.at <= +now ? { ...x, past: true } : x)).sort((a, b) => a.at - b.at);
   const g = store.get('geo');
   return { v: 1, made: Date.now(), geo: g ? { lat: g.lat, lon: g.lon } : null, items, triggers: placeTriggers(now, today),
     links: { weather: mdUrl('md-weather') || 'https://www.google.com/search?q=' + encodeURIComponent('מזג אוויר') } };
@@ -313,6 +318,18 @@ async function pruneInbox() {
 export function syncKeys() {
   kv.set('gh', ghToken() || '');
   kv.set('gtok', store.get('token') || null);
+}
+
+// "אחר כך" chosen inside the app for a non-task notification: the job sends it again then
+export async function snoozeItems(ids, until) {
+  for (let k = 0; ; k++) {
+    try {
+      const box = (await ghGet('inbox.json', BRANCH)) || [];
+      box.push({ t: 'snooze', ids, until, at: Date.now() });
+      await ghPut('inbox.json', box, 'Later (from the app)', BRANCH);
+      return true;
+    } catch (e) { if (!e.conflict || k >= 2) return false; }
+  }
 }
 
 // ---------- marks made from a notification while the app was closed ----------

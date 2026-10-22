@@ -18,7 +18,7 @@ const back = auth.handleRedirect();
 const params = new URLSearchParams(location.search);
 // deep links (from notifications): wizard, digest, event, task, snooze, habits(&h), shop, bday, tel, weather.
 // Kept across the quick sign-in hop to Google, which would otherwise drop them.
-const ROUTE_KEYS = ['wizard', 'digest', 'event', 'task', 'snooze', 'habits', 'shop', 'bday', 'tel', 'weather'];
+const ROUTE_KEYS = ['wizard', 'digest', 'event', 'task', 'snooze', 'later', 'habits', 'shop', 'bday', 'tel', 'weather'];
 let pending = [...params.keys()].some(k => ROUTE_KEYS.includes(k)) ? location.search : (sessionStorage.getItem('route') || '');
 if (back?.returnTo && !pending) pending = `?wizard=${back.returnTo}`;
 sessionStorage.removeItem('route');
@@ -80,6 +80,11 @@ async function boot() {
     if (q.get('event')) { if (!state.events.some(e => e.id === q.get('event'))) await refresh(); openEvent(q.get('event')); return; }
     if (q.get('task')) { if (!state.tasks.some(t => t.id === q.get('task'))) await refresh(); openTask(q.get('task')); return; }
     if (q.get('snooze')) { routeExtras.snoozeSheet(q.get('snooze'), Number(q.get('at')) || Date.now()); return; }
+    if (q.get('later')) {
+      if (q.get('task')) routeExtras.snoozeSheet(q.get('task'), Number(q.get('at')) || Date.now());
+      else routeExtras.laterSheet(q.get('later').split(','), Number(q.get('at')) || Date.now(), q.get('title') || '');
+      return;
+    }
     if (q.has('shop')) { routeExtras.shoppingList(); return; }
     if (q.get('bday')) { const ev = birthdayById(q.get('bday')); if (ev) editBirthday(ev); return; }
     if (q.get('digest')) { routeExtras.openDigest(q.get('digest')); return; }

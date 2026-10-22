@@ -1,5 +1,5 @@
 // Service worker: offline app shell + push notifications.
-const VERSION = 'v46';
+const VERSION = 'v47';
 const SHELL = [
   './', 'index.html', 'manifest.webmanifest', 'css/app.css',
   'js/app.js', 'js/auth.js', 'js/config.js', 'js/data.js', 'js/demo.js', 'js/extras.js', 'js/google.js', 'js/icons.js',
@@ -110,20 +110,21 @@ async function act(a, d, title) {
     if (kind === 'url') return self.clients.openWindow(d[slot]);
     if (kind === 'app') return focusOrOpen(new URL(d[slot], scope).href);
   }
-  if (a === 'tlater') {
-    const ch = laterChoices();
-    return self.registration.showNotification(`⏰ מתי להזכיר? ${d.title || ''}`.trim(), {
+  // "אחר כך" (any notification): a second notification with the two likeliest times; a tap on it opens all of them in the app
+  if (a === 'tlater' || a === 'later') {
+    const ch = laterChoices(), ids = d.ids || [d.id];
+    return self.registration.showNotification(`⏰ מתי להזכיר? ${(d.title || '').replace(/^⏰\s*/, '')}`.trim(), {
       body: 'עוד אפשרויות (מחר, מחרתיים, שבוע הבא): לגעת כאן', tag: d.tag || 'later', renotify: false, silent: true,
       icon: 'icons/icon-192.png', badge: 'icons/badge.png', dir: 'rtl', lang: 'he',
       actions: ch.map(([label], i) => ({ action: 'snz' + i, title: label })),
-      data: { ...d, choices: ch, url: `./?snooze=${encodeURIComponent(d.task)}&at=${d.at || Date.now()}` },
+      data: { ...d, ids, choices: ch, url: `./?later=${encodeURIComponent(ids.join(','))}&at=${d.at || Date.now()}${d.task ? `&task=${encodeURIComponent(d.task)}` : ''}&title=${encodeURIComponent(d.title || '')}` },
     });
   }
   if (a === 'snz0' || a === 'snz1') {
     const [label, until] = d.choices[Number(a.slice(3))];
-    await enqueue({ t: 'taskMove', id: d.task, until });
-    await inbox({ t: 'snooze', ids: [d.id], until }).catch(() => {});
-    return confirmDone(d, (d.title || 'משימה'), `אזכיר ${label.replace(/^\S+\s/, '')}, בסביבות ${hhmm(until)}`);
+    if (d.task) await enqueue({ t: 'taskMove', id: d.task, until });
+    const ok = await inbox({ t: 'snooze', ids: d.ids || [d.id], until }).then(() => true, () => !!d.task);
+    return confirmDone({ ...d, url: './' }, (d.title || 'תזכורת'), ok ? `אזכיר ${label.replace(/^\S+\s/, '')}, בסביבות ${hhmm(until)}` : 'לא הצלחתי לשמור. אפשר לבחור שוב מהאפליקציה.');
   }
   if (!a && d.tapMd) { const ok = await fire(d.tapMd); if (ok) return; }
   if (a === 'done' || a === 'plus') {
@@ -135,11 +136,6 @@ async function act(a, d, title) {
     const synced = await completeTask(d.task, d.list).catch(() => false);
     await enqueue({ t: 'task', id: d.task, synced });
     return confirmDone(d, title, 'סומן כבוצע ✓');
-  }
-  if (a === 'later') {
-    const until = Date.now() + (d.later || 60) * 60000;
-    const ok = await inbox({ t: 'snooze', ids: d.ids || [d.id], until }).then(() => true, () => false);
-    return confirmDone(d, title, ok ? `אזכיר שוב ${(d.later || 60) >= 1440 ? 'מחר' : 'בעוד שעה'}, בסביבות ${hhmm(until)}` : 'לא הצלחתי לשמור את הדחייה. אפשר לנסות שוב מהאפליקציה.');
   }
   if (a === 'wa' && d.wa) return self.clients.openWindow(d.wa);
   if (a === 'tel' && d.tel) return focusOrOpen(new URL('./?tel=' + encodeURIComponent(d.tel), scope).href);
