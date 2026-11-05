@@ -27,9 +27,9 @@ jobs:
   push:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with: { node-version: 20 }
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with: { node-version: 22 }
       - name: Load state
         run: |
           git fetch origin push-state:push-state 2>/dev/null && git show push-state:state.json > /tmp/state.json || echo '{}' > /tmp/state.json
@@ -47,10 +47,30 @@ jobs:
           INBOX_FILE: /tmp/inbox.json
           TZ: Asia/Jerusalem
       - name: Save state
+        # What was sent must be saved, or the next run sends it again. A push can fail (a GitHub hiccup, or the
+        # arrival job saving at the same moment), so: retry up to 5 times, each time on top of the latest saved
+        # state, keeping everything either side has sent.
         run: |
-          if [ -f /tmp/state.changed ]; then
-            git config user.name "github-actions"; git config user.email "github-actions@users.noreply.github.com"
-            git worktree add /tmp/st push-state 2>/dev/null || { git worktree add --detach /tmp/st && cd /tmp/st && git checkout --orphan push-state && git rm -rfq . && cd -; }
-            cp /tmp/state.json /tmp/st/state.json
-            cd /tmp/st && git add state.json && git commit -qm "push state" && git push -q origin push-state
-          fi
+          [ -f /tmp/state.changed ] || exit 0
+          git config user.name "github-actions"; git config user.email "github-actions@users.noreply.github.com"
+          for i in 1 2 3 4 5; do
+            rm -rf /tmp/st; git worktree prune
+            if git fetch -q origin push-state 2>/dev/null; then
+              git worktree add -q --detach /tmp/st FETCH_HEAD
+            else
+              git worktree add -q --detach /tmp/st && (cd /tmp/st && git checkout -q --orphan tmp && git rm -rfq . 2>/dev/null; true)
+            fi
+            node -e '
+              const fs = require("fs"), mine = JSON.parse(fs.readFileSync("/tmp/state.json", "utf8"));
+              let theirs = {}; try { theirs = JSON.parse(fs.readFileSync("/tmp/st/state.json", "utf8")); } catch {}
+              const out = { ...theirs, ...mine, sent: { ...(theirs.sent || {}), ...(mine.sent || {}) } };
+              for (const k of ["morning", "evening", "weather", "digest"]) if ((theirs[k] || "") > (mine[k] || "")) out[k] = theirs[k];
+              fs.writeFileSync("/tmp/st/state.json", JSON.stringify(out));'
+            cd /tmp/st
+            git add state.json
+            git diff --cached --quiet && { echo "state already up to date"; exit 0; }
+            git commit -qm "push state"
+            if git push -q origin HEAD:refs/heads/push-state; then echo "state saved (try $i)"; exit 0; fi
+            cd - >/dev/null; echo "push failed, retrying ($i)"; sleep $((i * 3))
+          done
+          echo "::error::could not save the push state"; exit 1
